@@ -1,0 +1,567 @@
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { v4 as uuidv4 } from 'uuid';
+import Room from './models/Room.js';
+import authRoutes from './routes/auth.js';
+
+// Load environment variables
+dotenv.config();
+
+
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+const app = express();
+const httpServer = createServer(app);
+
+// Socket.io CORS configuration - allow frontend origin
+const io = new Server(httpServer, {
+  cors: {
+    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// Middleware
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+  credentials: true
+}));
+app.use(express.json({ limit: '50mb' })); // Increased limit for whiteboard data
+
+// Routes
+app.use('/api/auth', authRoutes);
+
+// Environment variables
+const PORT = process.env.PORT || 3001;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/livedesk';
+
+// ============================================================================
+// DATABASE CONNECTIONz
+// ============================================================================
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('✅ MongoDB connected successfully'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Generate unique room ID
+ * Format: xxxx-xxxx-xxxx
+ */
+const generateRoomId = () => {
+  return `${uuidv4().slice(0, 4)}-${uuidv4().slice(4, 8)}-${uuidv4().slice(8, 12)}`;
+};
+
+/**
+ * Generate random user color
+ */
+const getRandomColor = () => {
+  const colors = [
+    '#ef4444', '#f97316', '#eab308', '#22c55e',
+    '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899'
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
+// ============================================================================
+// REST API ROUTES
+// ============================================================================
+
+/**
+ * GET /api/room/:roomId
+ * Fetch room data for persistence
+ */
+app.get('/api/room/:roomId', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const room = await Room.findOne({ roomId });
+
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    res.json(room);
+  } catch (error) {
+    console.error('Error fetching room:', error);
+    res.status(500).json({ error: 'Failed to fetch room' });
+  }
+});
+
+/**
+ * POST /api/room
+ * Create a new room
+ */
+app.post('/api/room', async (req, res) => {
+  try {
+    const roomId = generateRoomId();
+    const room = await Room.create({ roomId });
+    res.status(201).json(room);
+  } catch (error) {
+    console.error('Error creating room:', error);
+    res.status(500).json({ error: 'Failed to create room' });
+  }
+});
+
+/**
+ * DELETE /api/room/:roomId
+ * Delete a room (cleanup)
+ */
+app.delete('/api/room/:roomId', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    await Room.findOneAndDelete({ roomId });
+    res.json({ message: 'Room deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting room:', error);
+    res.status(500).json({ error: 'Failed to delete room' });
+  }
+});
+
+// ============================================================================
+// FUTURE SCOPE: CODE EXECUTION ROUTE (Judge0 API integration placeholder)
+// ============================================================================
+
+/**
+ * POST /api/execute
+ * Execute code - TO BE INTEGRATED WITH JUDGE0 API
+ *
+ * Future implementation:
+ * 1. Send code to Judge0 API (https://judge0.com)
+ * 2. Poll for results
+ * 3. Return output to frontend
+ *
+ * For now, returns a mock response
+ */
+app.post('/api/execute', async (req, res) => {
+  try {
+    const { code, language, roomId } = req.body;
+
+    console.log(`[Code Execution] Room: ${roomId}, Language: ${language}`);
+
+    // ============================================================
+    // FUTURE: Integrate with Judge0 API
+    // ============================================================
+    // const response = await axios.post('https://api.judge0.com/submissions', {
+    //   source_code: code,
+    //   language_id: languageIds[language],
+    //   stdin: ''
+    // });
+    // Poll for results...
+    // ============================================================
+
+    // Mock response for now
+    const mockOutput = {
+      output: 'Code execution will be integrated with Judge0 API',
+      executionTime: '0ms',
+      exitCode: 0,
+      note: 'This is a placeholder. Integrate Judge0 API for actual execution.'
+    };
+
+    // Save execution result to room
+    const room = await Room.findOne({ roomId });
+    if (room) {
+      room.lastExecution = {
+        output: mockOutput.output,
+        exitCode: mockOutput.exitCode,
+        executedAt: new Date()
+      };
+      await room.save();
+    }
+
+    res.json(mockOutput);
+  } catch (error) {
+    console.error('Code execution error:', error);
+    res.status(500).json({ error: 'Code execution failed' });
+  }
+});
+
+// ============================================================================
+// SOCKET.IO REAL-TIME HANDLERS
+// ============================================================================
+
+// Store active socket connections
+const userSockets = new Map(); // socketId -> { roomId, userId, userName }
+
+/**
+ * Socket connection handler
+ */
+io.on('connection', (socket) => {
+  console.log(`🔌 User connected: ${socket.id}`);
+
+  /**
+   * EVENT: join-room
+   * User joins a collaborative room
+   */
+  socket.on('join-room', async ({ roomId, userName, userId: providedUserId }) => {
+    try {
+      // Find or create room in database
+      let room = await Room.findOne({ roomId });
+      
+      // Use provided ID or generate one
+      const userId = providedUserId || uuidv4();
+      const userColor = getRandomColor();
+      const user = { id: userId, name: userName || 'Anonymous', color: userColor, joinedAt: new Date() };
+
+      // Create room if it doesn't exist
+      if (!room) {
+        room = new Room({ 
+          roomId, 
+          whiteboardData: {}, 
+          code: '// Start coding here', 
+          language: 'javascript',
+          adminId: userId // The person creating the room is the admin
+        });
+        await room.save();
+      }
+
+      // Check if user is already in the users list for this room (prevents duplication)
+      const userExists = room.users.some(u => u.id === userId);
+      
+      if (!userExists) {
+        // Add user to room (in-memory + DB)
+        room.users.push(user);
+        await room.save();
+      }
+
+      // Check if this socket is already in a room and clean up
+      const existingSocketInfo = userSockets.get(socket.id);
+      if (existingSocketInfo) {
+        if (existingSocketInfo.roomId === roomId) {
+          console.log(`👤 Socket ${socket.id} already recorded in room ${roomId}`);
+        } else {
+          // If in a different room, clean up that one
+          await Room.findOneAndUpdate(
+            { roomId: existingSocketInfo.roomId },
+            { $pull: { users: { id: existingSocketInfo.userId } } }
+          );
+          socket.leave(existingSocketInfo.roomId);
+          socket.to(existingSocketInfo.roomId).emit('user-left', { userId: existingSocketInfo.userId });
+        }
+      }
+
+      // Join socket room
+      socket.join(roomId);
+      userSockets.set(socket.id, { roomId, userId, userName: user.name, color: userColor });
+
+      // Send current room state to new user
+      socket.emit('room-state', {
+        code: room.code,
+        language: room.language,
+        whiteboardData: room.whiteboardData,
+        users: room.users,
+        adminId: room.adminId,
+        settings: room.settings,
+        userId,
+        userColor
+      });
+
+      // Notify others in room
+      socket.to(roomId).emit('user-joined', user);
+
+      console.log(`👤 User ${user.name} joined room ${roomId}`);
+    } catch (error) {
+      console.error('Error joining room:', error);
+      socket.emit('error', { message: 'Failed to join room' });
+    }
+  });
+
+  /**
+   * EVENT: code-change
+   * Monaco editor text changed
+   * Real-time broadcast to other users in room
+   */
+  socket.on('code-change', async ({ roomId, code, language }) => {
+    try {
+      // Update in-memory socket state
+      const userInfo = userSockets.get(socket.id);
+      if (!userInfo) return;
+
+      // Broadcast to others in the room (exclude sender)
+      socket.to(roomId).emit('code-update', { code, language, userId: userInfo.userId });
+
+      // Debounced save to database (save every 2 seconds if changes occur)
+      // In production, use a proper debounce/throttle mechanism
+      await Room.findOneAndUpdate(
+        { roomId },
+        { code, language, updatedAt: new Date() },
+        { new: true }
+      );
+    } catch (error) {
+      console.error('Error syncing code:', error);
+    }
+  });
+
+  /**
+   * EVENT: code-complete
+   * Code change is complete (cursor moved, etc.)
+   * More aggressive save to DB
+   */
+  socket.on('code-complete', async ({ roomId, code, language }) => {
+    try {
+      await Room.findOneAndUpdate(
+        { roomId },
+        { code, language, updatedAt: new Date() }
+      );
+    } catch (error) {
+      console.error('Error saving code:', error);
+    }
+  });
+
+  // Throttled DB save for whiteboard to keep UI responsive
+  const whiteboardSaveTimers = new Map(); // roomId -> timer
+
+  /**
+   * EVENT: room-settings-update
+   * Admin updated room settings (lock editor, etc.)
+   */
+  socket.on('room-settings-update', async ({ roomId, settings }) => {
+    try {
+      await Room.findOneAndUpdate({ roomId }, { settings });
+      socket.to(roomId).emit('room-settings-sync', settings);
+    } catch (error) {
+      console.error('Error updating settings:', error);
+    }
+  });
+
+  /**
+   * EVENT: admin-kick-user
+   * Admin removed a user from the room
+   */
+  socket.on('admin-kick-user', ({ roomId, targetUserId }) => {
+    io.to(roomId).emit('user-kicked', { targetUserId });
+  });
+
+  /**
+   * EVENT: admin-terminate-room
+   * Admin deleted the entire room
+   */
+  socket.on('admin-terminate-room', async ({ roomId }) => {
+    try {
+      await Room.findOneAndDelete({ roomId });
+      io.to(roomId).emit('room-terminated');
+    } catch (error) {
+      console.error('Error terminating room:', error);
+    }
+  });
+
+  /**
+   * EVENT: whiteboard-update
+   * Excalidraw canvas elements changed
+   * Real-time broadcast to other users
+   */
+  socket.on('whiteboard-update', async ({ roomId, whiteboardData }) => {
+    try {
+      // 1. BROADCAST IMMEDIATELY (This is why it's real-time)
+      socket.to(roomId).emit('whiteboard-sync', { whiteboardData });
+
+      // 2. THROTTLED DB SAVE (Background task, doesn't block broadcast)
+      if (!whiteboardSaveTimers.has(roomId)) {
+        const timer = setTimeout(async () => {
+          try {
+            await Room.findOneAndUpdate(
+              { roomId },
+              { whiteboardData, updatedAt: new Date() }
+            );
+            whiteboardSaveTimers.delete(roomId);
+          } catch (e) {
+            console.error('Background DB save error:', e);
+          }
+        }, 2000); // Save every 2 seconds if changes persist
+        whiteboardSaveTimers.set(roomId, timer);
+      }
+    } catch (error) {
+      console.error('Error syncing whiteboard:', error);
+    }
+  });
+
+  /**
+   * EVENT: language-change
+   * User changed the programming language
+   */
+  socket.on('language-change', async ({ roomId, language }) => {
+    try {
+      await Room.findOneAndUpdate(
+        { roomId },
+        { language }
+      );
+
+      socket.to(roomId).emit('language-update', { language });
+    } catch (error) {
+      console.error('Error changing language:', error);
+    }
+  });
+
+  /**
+   * EVENT: mouse-move
+   * Broadcast user cursor position
+   */
+  socket.on('mouse-move', ({ roomId, x, y }) => {
+    const userInfo = userSockets.get(socket.id);
+    if (userInfo) {
+      socket.to(roomId).emit('cursor-update', {
+        userId: userInfo.userId,
+        userName: userInfo.userName,
+        color: userInfo.color,
+        x,
+        y
+      });
+    }
+  });
+
+  // ========================================================================
+  // FUTURE SCOPE: WEBRTC VOICE/VIDEO SIGNALING
+  // ========================================================================
+
+  /**
+   * EVENT: webrtc-offer
+   * WebRTC signaling - User A wants to call User B
+   *
+   * Future implementation for voice/video:
+   * 1. User A sends offer to signaling server
+   * 2. Server forwards to User B
+   * 3. User B responds with answer
+   * 4. Direct peer connection established
+   */
+  socket.on('webrtc-offer', ({ roomId, offer, targetUserId, fromUserId }) => {
+    console.log(`[WebRTC] Offer from ${fromUserId} to ${targetUserId}`);
+    socket.to(roomId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
+  });
+
+  /**
+   * EVENT: webrtc-answer
+   * WebRTC signaling - User B responds to offer
+   */
+  socket.on('webrtc-answer', ({ roomId, answer, targetUserId, fromUserId }) => {
+    console.log(`[WebRTC] Answer from ${fromUserId} to ${targetUserId}`);
+    socket.to(roomId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
+  });
+
+  /**
+   * EVENT: webrtc-ice-candidate
+   * WebRTC ICE candidate exchange
+   */
+  socket.on('webrtc-ice-candidate', ({ roomId, candidate, targetUserId, fromUserId }) => {
+    socket.to(roomId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
+  });
+
+  /**
+   * EVENT: webrtc-join-call / webrtc-leave-call
+   * Notify others when user starts/stops video call
+   */
+  socket.on('webrtc-join-call', ({ roomId }) => {
+    const userInfo = userSockets.get(socket.id);
+    if (userInfo) {
+      socket.to(roomId).emit('user-joined-call', {
+        userId: userInfo.userId,
+        userName: userInfo.userName
+      });
+    }
+  });
+
+  socket.on('webrtc-leave-call', ({ roomId }) => {
+    const userInfo = userSockets.get(socket.id);
+    if (userInfo) {
+      socket.to(roomId).emit('user-left-call', {
+        userId: userInfo.userId
+      });
+    }
+  });
+
+  // ========================================================================
+  // DISCONNECTION HANDLER
+  // ========================================================================
+
+  /**
+   * EVENT: disconnect
+   * User leaves the application
+   */
+  socket.on('disconnect', async () => {
+    try {
+      const userInfo = userSockets.get(socket.id);
+
+      if (userInfo) {
+        const { roomId, userId, userName } = userInfo;
+
+        // Check if this user has other active sockets in the same room
+        const hasOtherSockets = Array.from(userSockets.entries()).some(
+          ([sId, info]) => sId !== socket.id && info.roomId === roomId && info.userId === userId
+        );
+
+        if (!hasOtherSockets) {
+          // Remove user from room in database ONLY if no other tabs are open
+          await Room.findOneAndUpdate(
+            { roomId },
+            { $pull: { users: { id: userId } } }
+          );
+          // Notify others in room
+          socket.to(roomId).emit('user-left', { userId, userName });
+        }
+
+        // Leave socket room
+        socket.leave(roomId);
+        userSockets.delete(socket.id);
+
+        console.log(`👋 Socket ${socket.id} (${userName}) disconnected from room ${roomId}`);
+      }
+    } catch (error) {
+      console.error('Error handling disconnect:', error);
+    }
+  });
+
+  /**
+   * EVENT: leave-room
+   * User explicitly leaves a room
+   */
+  socket.on('leave-room', async ({ roomId }) => {
+    try {
+      const userInfo = userSockets.get(socket.id);
+
+      if (userInfo) {
+        await Room.findOneAndUpdate(
+          { roomId },
+          { $pull: { users: { id: userInfo.userId } } }
+        );
+
+        socket.to(roomId).emit('user-left', {
+          userId: userInfo.userId,
+          userName: userInfo.userName
+        });
+
+        socket.leave(roomId);
+        userSockets.delete(socket.id);
+      }
+    } catch (error) {
+      console.error('Error leaving room:', error);
+    }
+  });
+});
+
+// ============================================================================
+// START SERVER
+// ============================================================================
+
+httpServer.listen(PORT, () => {
+  console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║                    LiveDesk Server                         ║
+║   🚀 Server running on http://localhost:${PORT}            ║
+║   📡 Socket.io listening for connections                  ║
+║   💾 MongoDB: ${MONGO_URI.split('@')[1] || 'localhost:27017/livedesk'}
+╚═══════════════════════════════════════════════════════════╝
+
+Future Scope Ready:
+  • Code Execution API: POST /api/execute (Judge0 placeholder)
+  • WebRTC Signaling: webrtc-* events in Socket.io
+`);
+});
