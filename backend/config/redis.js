@@ -1,23 +1,19 @@
-import Redis from 'ioredis';
+import { createClient } from 'redis';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const redis = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
-  }
-});
+const redis = async () => {
+    const redisClient = createClient({
+        url: process.env.REDIS_HOST
+    });
 
-redis.on('connect', () => {
-  console.log('✅ Connected to Redis for OTP verification');
-});
+    redisClient.on('error', (err) => console.log('Redis Client Error', err));
+    redisClient.on('connect', () => console.log('Redis Client Connected'));
 
-redis.on('error', (err) => {
-  console.error('❌ Redis connection error:', err.message);
-});
+    await redisClient.connect();
+
+    return redisClient;
+};
 
 export default redis;
