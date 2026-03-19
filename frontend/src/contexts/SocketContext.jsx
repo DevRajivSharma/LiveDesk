@@ -51,14 +51,20 @@ export function SocketProvider({ children }) {
 
       newSocket.on('connect_error', (err) => {
         console.error('Socket connection error:', err.message)
-        setError('Failed to connect to server')
+        setError(`Connection failed: ${err.message}. Make sure the server is running on port 3001.`)
       })
 
       // Room state received when joining
       newSocket.on('room-state', (state) => {
         console.log('📦 Room state received:', state)
         setRoomState(state)
-        setUsers(state.users || [])
+        
+        // Filter out duplicate users by ID (just in case)
+        const uniqueUsers = (state.users || []).filter((user, index, self) => 
+          index === self.findIndex((u) => u.id === user.id)
+        )
+        setUsers(uniqueUsers)
+
         if (state.userId) {
           setCurrentUser(prev => ({ 
             ...prev, 
@@ -71,7 +77,11 @@ export function SocketProvider({ children }) {
       // User joined room
       newSocket.on('user-joined', (user) => {
         console.log('👤 User joined:', user)
-        setUsers(prev => [...prev, user])
+        setUsers(prev => {
+          // Check if user already exists in the list to prevent duplicates
+          if (prev.some(u => u.id === user.id)) return prev;
+          return [...prev, user]
+        })
       })
 
       // User left room
@@ -109,6 +119,13 @@ export function SocketProvider({ children }) {
           ...prev,
           [data.userId]: data
         }))
+      })
+
+      // Mic status update
+      newSocket.on('mic-status-update', ({ userId, isMuted }) => {
+        setUsers(prev => prev.map(u => 
+          u.id === userId ? { ...u, isMuted } : u
+        ))
       })
 
       setSocket(newSocket)

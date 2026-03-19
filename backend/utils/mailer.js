@@ -1,7 +1,16 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '../.env') });
+
+console.log('📧 Mailer config debug:', {
+  user: process.env.EMAIL_USER ? 'Present' : 'Missing',
+  pass: process.env.EMAIL_PASS ? 'Present' : 'Missing',
+  service: process.env.EMAIL_SERVICE
+});
 
 const transporter = nodemailer.createTransport({
   service: process.env.EMAIL_SERVICE || 'gmail',
@@ -11,12 +20,14 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+const FROM_EMAIL = process.env.EMAIL_USER;
+
 /**
  * Send OTP for email verification
  */
 export const sendOTP = async (email, otp) => {
   const mailOptions = {
-    from: `"LiveDesk" <${process.env.EMAIL_USER}>`,
+    from: `"LiveDesk" <${FROM_EMAIL}>`,
     to: email,
     subject: 'Verification Code for LiveDesk',
     html: `
@@ -49,7 +60,7 @@ export const sendOTP = async (email, otp) => {
 export const sendResetLink = async (email, resetToken) => {
   const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
   const mailOptions = {
-    from: `"LiveDesk" <${process.env.EMAIL_USER}>`,
+    from: `"LiveDesk" <${FROM_EMAIL}>`,
     to: email,
     subject: 'Password Reset Request for LiveDesk',
     html: `

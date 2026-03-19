@@ -1,19 +1,30 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSocketContext } from '../contexts/SocketContext';
 
-function RemoteAudio({ stream }) {
+function RemoteAudio({ stream, userId }) {
   const audioRef = useRef();
   useEffect(() => {
     if (audioRef.current && stream) {
+      console.log(`[WebRTC] Attaching remote stream from ${userId} to audio element`);
       audioRef.current.srcObject = stream;
+      audioRef.current.play().catch(e => {
+        console.warn(`[WebRTC] Audio playback for ${userId} failed. Browser might be blocking autoplay.`, e);
+      });
     }
-  }, [stream]);
-  return <audio ref={audioRef} autoPlay />;
+  }, [stream, userId]);
+  return <audio ref={audioRef} autoPlay playsInline />;
 }
 
 function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
   const { users, currentUser, socket } = useSocketContext();
   const isAdmin = settings?.adminId === currentUser?.id;
+
+  // Debugging log for admin identification
+  useEffect(() => {
+    if (settings?.adminId && currentUser?.id) {
+      console.log(`🔐 Admin Check: RoomAdmin=${settings.adminId}, CurrentUser=${currentUser.id}, Match=${isAdmin}`);
+    }
+  }, [settings?.adminId, currentUser?.id, isAdmin]);
 
   const [isMuted, setIsMuted] = useState(true);
   const [localStream, setLocalStream] = useState(null);
@@ -44,6 +55,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     const analyser = audioContextRef.current.createAnalyser();
     analyser.fftSize = 512;
     source.connect(analyser);
+    // Never connect to destination to avoid hearing oneself
     analysersRef.current[userId] = analyser;
 
     const bufferLength = analyser.frequencyBinCount;
@@ -120,12 +132,22 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     socket.on('webrtc-answer', handleAnswer);
     socket.on('webrtc-ice-candidate', handleIceCandidate);
 
+    // When a new user joins, if we have our mic on, we should send them an offer
+    const handleUserJoined = (user) => {
+      if (!isMuted && localStream && user.id !== currentUser.id) {
+        console.log(`[WebRTC] New user joined, sending offer to ${user.id}`);
+        createOffer(user.id, localStream);
+      }
+    };
+    socket.on('user-joined', handleUserJoined);
+
     return () => {
       socket.off('webrtc-offer', handleOffer);
       socket.off('webrtc-answer', handleAnswer);
       socket.off('webrtc-ice-candidate', handleIceCandidate);
+      socket.off('user-joined', handleUserJoined);
     };
-  }, [socket, roomId, currentUser.id]);
+  }, [socket, roomId, currentUser.id, isMuted, localStream]);
 
   const createPeerConnection = (targetUserId) => {
     if (pcRef.current[targetUserId]) return pcRef.current[targetUserId];
@@ -139,11 +161,24 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`[WebRTC] Sending ICE candidate to ${targetUserId}`);
         socket.emit('webrtc-ice-candidate', { roomId, candidate: event.candidate, targetUserId, fromUserId: currentUser.id });
       }
     };
 
+    pc.onnegotiationneeded = async () => {
+      try {
+        console.log(`[WebRTC] Negotiation needed for ${targetUserId}`);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('webrtc-offer', { roomId, offer, targetUserId, fromUserId: currentUser.id });
+      } catch (err) {
+        console.error("Negotiation error:", err);
+      }
+    };
+
     pc.ontrack = (event) => {
+      if (targetUserId === currentUser.id) return; // Never attach local stream to remote audio
       console.log(`[WebRTC] Received track from ${targetUserId}`);
       const stream = event.streams[0];
       setRemoteStreams(prev => ({ ...prev, [targetUserId]: stream }));
@@ -151,6 +186,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     };
 
     pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE connection state with ${targetUserId}: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
         cleanupPeer(targetUserId);
       }
@@ -184,15 +220,15 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     });
   };
 
-  // Initialize WebRTC
+  // Initialize WebRTC - Keep running even if sidebar is closed
   useEffect(() => {
-    if (isOpen && !isMuted) {
+    if (!isMuted) {
       startAudio();
     } else {
       stopAudio();
     }
-    return () => stopAudio();
-  }, [isOpen, isMuted]);
+    // Cleanup handled by individual peer closures or room termination
+  }, [isMuted]);
 
   const startAudio = async () => {
     try {
@@ -252,6 +288,12 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     }
   };
 
+  const handleMuteToggle = () => {
+    const newMutedState = !isMuted;
+    setIsMuted(newMutedState);
+    socket.emit('mic-status-change', { roomId, userId: currentUser.id, isMuted: newMutedState });
+  };
+
    // Handle Admin Toggle Settings
    const handleToggleSetting = (key) => {
      if (!isAdmin) return;
@@ -270,6 +312,13 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
 
   return (
     <>
+      {/* Hidden Audio Elements - Always in DOM */}
+      <div className="hidden pointer-events-none invisible h-0 w-0 overflow-hidden">
+        {Object.entries(remoteStreams).map(([userId, stream]) => (
+          <RemoteAudio key={userId} userId={userId} stream={stream} />
+        ))}
+      </div>
+
       {/* Backdrop */}
       {isOpen && (
         <div 
@@ -299,13 +348,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
-            {/* Audio Elements (Hidden) */}
-            <div className="hidden">
-              {Object.entries(remoteStreams).map(([userId, stream]) => (
-                <RemoteAudio key={userId} stream={stream} />
-              ))}
-            </div>
-
             {/* Audio Section */}
             <section>
               <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Voice Communication</h3>
@@ -321,7 +363,10 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                     </div>
                   </div>
                   <button 
-                    onClick={() => setIsMuted(!isMuted)}
+                    onClick={() => {
+                      // This logic was previously inline, now extracted to a function below
+                      handleMuteToggle();
+                    }}
                     className={`w-12 h-6 rounded-full transition-colors relative ${isMuted ? 'bg-slate-700' : 'bg-primary-600'}`}
                   >
                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isMuted ? 'left-1' : 'left-7'}`} />
@@ -384,10 +429,10 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
               </div>
               <div className="space-y-2">
                 {users.map((user) => {
-                  const isYou = user.id === currentUser.id;
-                  const isHost = user.id === settings.adminId;
+                  const isYou = user.id === currentUser?.id;
+                  const isHost = user.id === settings?.adminId;
                   const isUserSpeaking = speakingUsers[user.id];
-                  const isUserRemoteMuted = !isYou && !remoteStreams[user.id];
+                  const isUserMuted = user.isMuted ?? true;
                   
                   return (
                     <div 
@@ -419,6 +464,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                               {user.name}
                             </span>
                             {isYou && <span className="text-[8px] bg-primary-500/20 text-primary-400 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter">You</span>}
+                            {isHost && <span className="text-[8px] bg-yellow-500/20 text-yellow-500 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter ring-1 ring-yellow-500/40">Host</span>}
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             {isHost ? (
@@ -435,15 +481,9 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                       <div className="flex items-center gap-2">
                         {/* Status Icons */}
                         <div className="flex items-center gap-2 pr-2">
-                          {isYou ? (
-                            <span className={`text-xs transition-opacity ${isMuted ? 'opacity-40 grayscale' : 'opacity-100'}`}>
-                              {isMuted ? '🔇' : '🎙️'}
-                            </span>
-                          ) : (
-                            <span className={`text-xs transition-opacity ${isUserRemoteMuted ? 'opacity-40 grayscale' : 'opacity-100'}`}>
-                              {isUserRemoteMuted ? '🔇' : '🎙️'}
-                            </span>
-                          )}
+                          <span className={`text-xs transition-opacity ${isUserMuted ? 'opacity-40 grayscale' : 'opacity-100'}`}>
+                            {isUserMuted ? '🔇' : '🎙️'}
+                          </span>
                         </div>
 
                         {/* Admin Actions */}

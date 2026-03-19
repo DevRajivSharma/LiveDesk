@@ -6,6 +6,7 @@ import Whiteboard from '../components/Whiteboard'
 import Toolbar from '../components/Toolbar'
 import Cursors from '../components/Cursors'
 import Sidebar from '../components/Sidebar'
+import Loading from '../components/Loading'
 
 function Room() {
   const { roomId } = useParams()
@@ -119,10 +120,25 @@ function Room() {
     // Use a ref to prevent multiple joins in the same session
     if (!hasJoinedRef.current) {
       // Get user from localStorage
-      const user = JSON.parse(localStorage.getItem('livedesk-user') || '{}');
-      const userName = user.username || 'Anonymous';
-      const userId = user.id || uuidv4(); // Use persistent ID if available
+      const userStr = localStorage.getItem('livedesk-user');
+      const user = userStr ? JSON.parse(userStr) : null;
+      
+      if (!user) {
+        console.error('❌ User not found in localStorage. Redirecting to login.');
+        navigate('/login');
+        return;
+      }
 
+      const userName = user.username || 'Anonymous';
+      const userId = user.id || user._id; // Support both id and _id
+
+      if (!userId) {
+        console.error('❌ User ID not found in localStorage user object.');
+        navigate('/login');
+        return;
+      }
+
+      console.log(`🔑 Joining room ${roomId} as ${userName} (${userId})`);
       joinRoom(roomId, userName, userId);
       setIsLoading(false);
       hasJoinedRef.current = true;
@@ -161,26 +177,12 @@ function Room() {
 
   // Redirect if not connected
   if (!isConnected) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="animate-spin text-4xl mb-4">⏳</div>
-          <p className="text-slate-600">Connecting to server...</p>
-        </div>
-      </div>
-    )
+    return <Loading message="Connecting to server..." />
   }
 
   // Loading state
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="animate-spin text-4xl mb-4">⏳</div>
-          <p className="text-slate-600">Joining room {roomId}...</p>
-        </div>
-      </div>
-    )
+    return <Loading message={`Joining room ${roomId}...`} />
   }
 
   return (

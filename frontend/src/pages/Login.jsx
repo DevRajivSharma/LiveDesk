@@ -70,7 +70,7 @@ function Login() {
             <div className="space-y-2">
               <div className="flex items-center justify-between ml-1">
                 <label className="block text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">Password</label>
-                <Link to="/forgot-password" title="Coming soon" className="text-[11px] text-primary-500 hover:text-primary-400 font-black uppercase tracking-wider transition-colors">Forgot?</Link>
+                <Link to="/forgot-password" title="Recover Password" className="text-[11px] text-primary-500 hover:text-primary-400 font-black uppercase tracking-wider transition-colors">Forgot?</Link>
               </div>
               <input
                 type="password"

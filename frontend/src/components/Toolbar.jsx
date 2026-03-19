@@ -6,6 +6,7 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar })
   const [isExecuting, setIsExecuting] = useState(false)
   const [executionResult, setExecutionResult] = useState(null)
   const [isUserModalOpen, setIsUserModalOpen] = useState(false)
+  const [showCopyMenu, setShowCopyMenu] = useState(false)
   const { users } = useSocketContext()
 
   // Future scope: Code execution with Judge0 API
@@ -43,11 +44,21 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar })
     }
   }, [roomId, language, isExecuting])
 
-  // Copy room link to clipboard
-  const handleCopyLink = useCallback(() => {
-    const url = `${window.location.origin}/room/${roomId}`
-    navigator.clipboard.writeText(url)
-    alert('Room link copied to clipboard!')
+  // Copy room info
+  const handleCopy = useCallback((type) => {
+    let text = roomId;
+    let message = 'Room ID copied!';
+    
+    if (type === 'url') {
+      text = `${window.location.origin}/room/${roomId}`;
+      message = 'Room URL copied!';
+    }
+    
+    navigator.clipboard.writeText(text);
+    setShowCopyMenu(false);
+    
+    // Custom toast-like alert would be better, but for now:
+    alert(message);
   }, [roomId])
 
   // Leave room
@@ -96,17 +107,58 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar })
       </div>
 
       {/* Center: Room Info */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg border border-slate-700">
-          <span className="text-xs text-slate-500 uppercase font-bold">Room:</span>
-          <code className="text-sm font-mono text-primary-400 font-bold">{roomId}</code>
-          <button
-            onClick={handleCopyLink}
-            className="p-1 hover:bg-slate-700 rounded transition-colors text-slate-400 hover:text-white"
-            title="Copy room link"
+      <div className="flex items-center gap-4">
+        <div className="flex items-center bg-black/40 border border-white/5 rounded-xl px-3 py-1.5 group relative">
+          <div className="flex flex-col items-end pr-3 border-r border-white/5">
+            <span className="text-[8px] text-slate-500 font-black uppercase tracking-[0.2em]">Room Session</span>
+            <span className="text-xs font-black text-white tracking-tight">{roomId}</span>
+          </div>
+          
+          <button 
+            onClick={() => setShowCopyMenu(!showCopyMenu)}
+            className="pl-3 text-slate-500 hover:text-white transition-colors"
+            title="Share Room"
           >
-            📋
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+            </svg>
           </button>
+
+          {/* Copy Dropdown */}
+          {showCopyMenu && (
+            <>
+              <div 
+                className="fixed inset-0 z-40" 
+                onClick={() => setShowCopyMenu(false)}
+              />
+              <div className="absolute top-full right-0 mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in duration-200">
+                <button 
+                  onClick={() => handleCopy('id')}
+                  className="w-full px-5 py-4 text-left hover:bg-white/5 flex items-center gap-3 transition-colors border-b border-white/5 group"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center text-primary-400 group-hover:scale-110 transition-transform">
+                    <span className="text-[10px] font-black italic">ID</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-black text-white uppercase tracking-widest">Copy ID</span>
+                    <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-tighter">Unique Room Code</span>
+                  </div>
+                </button>
+                <button 
+                  onClick={() => handleCopy('url')}
+                  className="w-full px-5 py-4 text-left hover:bg-white/5 flex items-center gap-3 transition-colors group"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
+                    <span className="text-xs font-black">🔗</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-black text-white uppercase tracking-widest">Copy URL</span>
+                    <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-tighter">Full Invite Link</span>
+                  </div>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

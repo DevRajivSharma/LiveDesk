@@ -45,6 +45,10 @@ const roomSchema = new mongoose.Schema({
       type: String,
       default: '#6366f1' // Default accent color
     },
+    isMuted: {
+      type: Boolean,
+      default: true
+    },
     joinedAt: {
       type: Date,
       default: Date.now

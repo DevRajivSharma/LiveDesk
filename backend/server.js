@@ -1,22 +1,16 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 import Room from './models/Room.js';
 import authRoutes from './routes/auth.js';
 
-// Load environment variables
-dotenv.config();
-
-
-
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
-
+// Configuration
 const app = express();
 const httpServer = createServer(app);
 
@@ -211,9 +205,15 @@ io.on('connection', (socket) => {
       // Use provided ID or generate one
       const userId = providedUserId || uuidv4();
       const userColor = getRandomColor();
-      const user = { id: userId, name: userName || 'Anonymous', color: userColor, joinedAt: new Date() };
+      const user = { 
+        id: userId, 
+        name: userName || 'Anonymous', 
+        color: userColor, 
+        isMuted: true, // Default to muted
+        joinedAt: new Date() 
+      };
 
-      // Create room if it doesn't exist
+      // Create room if it doesn't exist or assign admin if missing
       if (!room) {
         room = new Room({ 
           roomId, 
@@ -222,8 +222,12 @@ io.on('connection', (socket) => {
           language: 'javascript',
           adminId: userId // The person creating the room is the admin
         });
-        await room.save();
+      } else if (!room.adminId) {
+        // If room exists but has no admin, this user becomes admin
+        room.adminId = userId;
       }
+
+      await room.save();
 
       // Check if user is already in the users list for this room (prevents duplication)
       const userExists = room.users.some(u => u.id === userId);
@@ -232,6 +236,12 @@ io.on('connection', (socket) => {
         // Add user to room (in-memory + DB)
         room.users.push(user);
         await room.save();
+
+        // Notify others in room ONLY if this is a new unique user
+        socket.to(roomId).emit('user-joined', user);
+        console.log(`👤 New user ${user.name} joined room ${roomId}`);
+      } else {
+        console.log(`👤 User ${user.name} reconnected to room ${roomId}`);
       }
 
       // Check if this socket is already in a room and clean up
@@ -266,10 +276,6 @@ io.on('connection', (socket) => {
         userColor
       });
 
-      // Notify others in room
-      socket.to(roomId).emit('user-joined', user);
-
-      console.log(`👤 User ${user.name} joined room ${roomId}`);
     } catch (error) {
       console.error('Error joining room:', error);
       socket.emit('error', { message: 'Failed to join room' });
@@ -362,22 +368,28 @@ io.on('connection', (socket) => {
    */
   socket.on('whiteboard-update', async ({ roomId, whiteboardData }) => {
     try {
-      // 1. BROADCAST IMMEDIATELY (This is why it's real-time)
-      socket.to(roomId).emit('whiteboard-sync', { whiteboardData });
+      // Parse data if it's a string to ensure consistency
+      const parsedData = typeof whiteboardData === 'string' ? JSON.parse(whiteboardData) : whiteboardData;
 
-      // 2. THROTTLED DB SAVE (Background task, doesn't block broadcast)
+      // 1. BROADCAST IMMEDIATELY (Use consistent object format)
+      socket.to(roomId).emit('whiteboard-sync', { whiteboardData: parsedData });
+
+      // 2. THROTTLED DB SAVE
       if (!whiteboardSaveTimers.has(roomId)) {
         const timer = setTimeout(async () => {
           try {
             await Room.findOneAndUpdate(
               { roomId },
-              { whiteboardData, updatedAt: new Date() }
+              { 
+                whiteboardData: parsedData, 
+                updatedAt: new Date() 
+              }
             );
             whiteboardSaveTimers.delete(roomId);
           } catch (e) {
             console.error('Background DB save error:', e);
           }
-        }, 2000); // Save every 2 seconds if changes persist
+        }, 2000);
         whiteboardSaveTimers.set(roomId, timer);
       }
     } catch (error) {
@@ -399,6 +411,29 @@ io.on('connection', (socket) => {
       socket.to(roomId).emit('language-update', { language });
     } catch (error) {
       console.error('Error changing language:', error);
+    }
+  });
+
+  /**
+   * EVENT: mic-status-change
+   * User toggled their microphone
+   */
+  socket.on('mic-status-change', async ({ roomId, userId, isMuted }) => {
+    try {
+      // Update in-memory user list if necessary
+      const userInfo = userSockets.get(socket.id);
+      if (userInfo) userInfo.isMuted = isMuted;
+
+      // Update database
+      await Room.findOneAndUpdate(
+        { roomId, 'users.id': userId },
+        { $set: { 'users.$.isMuted': isMuted } }
+      );
+
+      // Broadcast to others
+      socket.to(roomId).emit('mic-status-update', { userId, isMuted });
+    } catch (error) {
+      console.error('Error syncing mic status:', error);
     }
   });
 
