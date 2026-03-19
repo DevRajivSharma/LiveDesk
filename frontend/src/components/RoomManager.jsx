@@ -6,12 +6,13 @@ function RoomManager() {
   const [roomId, setRoomId] = useState('')
   const [isJoining, setIsJoining] = useState(false)
   const { isConnected } = useSocketContext()
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
   const navigate = useNavigate()
 
   // Create a new room
   const handleCreateRoom = async () => {
     try {
-      const response = await fetch('/api/room', {
+      const response = await fetch(`${API_URL}/api/room`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -38,7 +39,7 @@ function RoomManager() {
 
     try {
       // Verify room exists
-      const response = await fetch(`/api/room/${roomId.trim()}`)
+      const response = await fetch(`${API_URL}/api/room/${roomId.trim()}`)
 
       if (!response.ok) {
         alert('Room not found. Please check the Room ID.')
