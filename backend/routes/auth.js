@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.js';
-import redis from '../config/redis.js';
+import { client as redis } from '../config/redis.js';
 import { sendOTP, sendResetLink } from '../utils/mailer.js';
 import crypto from 'crypto';
 
@@ -30,14 +30,12 @@ router.post('/register', [
     let user = await User.findOne({ $or: [{ email }, { username }] });
     if (user) return res.status(400).json({ message: 'User already exists' });
 
-    // Store registration data in Redis temporarily (valid for 10 mins)
     const otp = generateOTP();
     const registrationData = { username, email, password, otp };
-    
-    // Save to Redis: key = email_otp, value = JSON data, TTL = 600s
-    await redis.setex(`reg_${email}`, 600, JSON.stringify(registrationData));
 
-    // Send OTP via Email
+    // ✅ redis uses SET with EX option instead of setex
+    await redis.set(`reg_${email}`, JSON.stringify(registrationData), { EX: 600 });
+
     const emailSent = await sendOTP(email, otp);
     if (!emailSent) return res.status(500).json({ message: 'Error sending verification email' });
 
@@ -56,24 +54,25 @@ router.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
 
   try {
+    // ✅ redis GET works the same way
     const dataStr = await redis.get(`reg_${email}`);
     if (!dataStr) return res.status(400).json({ message: 'OTP expired or not found' });
 
     const data = JSON.parse(dataStr);
     if (data.otp !== otp) return res.status(400).json({ message: 'Invalid OTP' });
 
-    // Create User
     const user = new User({
       username: data.username,
       email: data.email,
-      password: data.password, // Will be hashed by pre-save hook
+      password: data.password,
       isVerified: true
     });
 
     await user.save();
+
+    // ✅ redis DEL works the same way
     await redis.del(`reg_${email}`);
 
-    // Generate JWT
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'livedesk_secret', { expiresIn: '7d' });
 
     res.status(201).json({ 
@@ -94,6 +93,7 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
+    console.log('This is user', await User.find({ email }));
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
 
@@ -123,7 +123,6 @@ router.post('/forgot-password', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Generate reset token
     const resetToken = crypto.randomBytes(20).toString('hex');
     user.resetPasswordToken = resetToken;
     user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
@@ -156,7 +155,7 @@ router.post('/reset-password/:token', async (req, res) => {
 
     if (!user) return res.status(400).json({ message: 'Invalid or expired token' });
 
-    user.password = password; // Will be hashed by pre-save hook
+    user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
 

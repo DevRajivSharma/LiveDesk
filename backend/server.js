@@ -9,7 +9,16 @@ import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import Room from './models/Room.js';
 import authRoutes from './routes/auth.js';
+import { connectRedis } from './config/redis.js';
 
+const ALLOWED_ORIGINS = [
+  'https://livedesk-nine.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000'
+];
+
+await connectRedis();
 // Configuration
 const app = express();
 const httpServer = createServer(app);
@@ -17,7 +26,7 @@ const httpServer = createServer(app);
 // Socket.io CORS configuration - allow frontend origin
 const io = new Server(httpServer, {
   cors: {
-    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+    origin: ALLOWED_ORIGINS,
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -25,7 +34,7 @@ const io = new Server(httpServer, {
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+  origin: ALLOWED_ORIGINS,
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' })); // Increased limit for whiteboard data
@@ -35,13 +44,14 @@ app.use('/api/auth', authRoutes);
 
 // Environment variables
 const PORT = process.env.PORT || 3001;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/livedesk';
-
+console.log('This is mongoose',process.env.MONGO_URI)
+const MONGO_URI = process.env.MONGO_URI ;
+const DB_NAME = process.env.DB_NAME ;
 // ============================================================================
 // DATABASE CONNECTIONz
 // ============================================================================
 
-mongoose.connect(MONGO_URI)
+mongoose.connect(`${MONGO_URI}/${DB_NAME}`)
   .then(() => console.log('✅ MongoDB connected successfully'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
@@ -587,16 +597,5 @@ io.on('connection', (socket) => {
 // ============================================================================
 
 httpServer.listen(PORT, () => {
-  console.log(`
-╔═══════════════════════════════════════════════════════════╗
-║                    LiveDesk Server                         ║
-║   🚀 Server running on http://localhost:${PORT}            ║
-║   📡 Socket.io listening for connections                  ║
-║   💾 MongoDB: ${MONGO_URI.split('@')[1] || 'localhost:27017/livedesk'}
-╚═══════════════════════════════════════════════════════════╝
-
-Future Scope Ready:
-  • Code Execution API: POST /api/execute (Judge0 placeholder)
-  • WebRTC Signaling: webrtc-* events in Socket.io
-`);
+  
 });
