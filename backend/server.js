@@ -86,9 +86,6 @@ const getRandomColor = () => {
  * GET /api/room/:roomId
  * Fetch room data for persistence
  */
-app.get('/testing', (req, res) => {
-  res.json({ message: 'Testing endpoint works!' });
-});
 app.get('/api/room/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;

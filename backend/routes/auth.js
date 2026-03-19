@@ -95,6 +95,7 @@ router.post('/login', async (req, res) => {
   try {
     console.log('This is user', await User.find({ email }));
     const user = await User.findOne({ email });
+    
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
 
     const isMatch = await user.comparePassword(password);
