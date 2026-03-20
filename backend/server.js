@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
-
+console.log('EMAIL_API_URL URL:',process.env.EMAIL_API_URL)
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
