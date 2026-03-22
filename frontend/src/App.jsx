@@ -7,7 +7,9 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import Profile from './pages/Profile'
 import { Component } from 'react'
+import { Toaster } from 'react-hot-toast'
 
 // Private Route Component
 const PrivateRoute = ({ children }) => {
@@ -63,6 +65,33 @@ class ErrorBoundary extends Component {
 function App() {
   return (
     <ErrorBoundary>
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: '#141414',
+            color: '#fff',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '0px',
+            fontSize: '10px',
+            fontWeight: '900',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em'
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          }
+        }}
+      />
       <SocketProvider>
         <Router>
           <div className="min-h-screen bg-[#050505]">
@@ -79,6 +108,11 @@ function App() {
             <Route path="/home" element={
               <PrivateRoute>
                 <Home />
+              </PrivateRoute>
+            } />
+            <Route path="/profile" element={
+              <PrivateRoute>
+                <Profile />
               </PrivateRoute>
             } />
             <Route path="/room/:roomId" element={

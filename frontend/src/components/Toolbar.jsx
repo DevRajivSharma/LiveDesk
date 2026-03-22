@@ -1,49 +1,12 @@
 import { useState, useCallback } from 'react'
 import UserModal from './UserModal'
 import { useSocketContext } from '../contexts/SocketContext'
-import { Code2, PenTool, Split, Settings, Play, LogOut, Share2, X } from 'lucide-react'
+import { Code2, PenTool, Split, Settings, Play, LogOut, Share2, X, Menu, Terminal } from 'lucide-react'
 
-function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar }) {
-  const [isExecuting, setIsExecuting] = useState(false)
-  const [executionResult, setExecutionResult] = useState(null)
+function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, onOpenMenu }) {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false)
   const [showCopyMenu, setShowCopyMenu] = useState(false)
   const { users } = useSocketContext()
-
-  // Future scope: Code execution with Judge0 API
-  const handleRunCode = useCallback(async () => {
-    if (isExecuting) return
-
-    setIsExecuting(true)
-    setExecutionResult(null)
-
-    try {
-      // Get code from Monaco editor
-      const codeElement = document.querySelector('.monaco-editor')
-      // Note: In production, you'd use a ref to access the editor instance
-
-      // Get code from localStorage as fallback (set by CodeEditor)
-      const code = localStorage.getItem(`livedesk-code-${roomId}`) || '// No code found'
-
-      const response = await fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code,
-          language: language || 'javascript',
-          roomId
-        })
-      })
-
-      const result = await response.json()
-      setExecutionResult(result)
-    } catch (error) {
-      console.error('Execution error:', error)
-      setExecutionResult({ error: 'Failed to execute code' })
-    } finally {
-      setIsExecuting(false)
-    }
-  }, [roomId, language, isExecuting])
 
   // Copy room info
   const handleCopy = useCallback((type) => {
@@ -71,8 +34,16 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar })
 
   return (
     <div className="flex items-center justify-between px-4 py-2 bg-[#111] border-b border-white/5">
-      {/* Left: View Toggle */}
-      <div className="flex items-center gap-2">
+      {/* Left: View Toggle & Menu */}
+      <div className="flex items-center gap-4">
+        <button 
+          onClick={onOpenMenu}
+          className="p-2 hover:bg-white/5 rounded-xl transition-colors text-slate-400 hover:text-white group"
+          title="Open Tools Menu"
+        >
+          <Menu className="w-6 h-6 group-hover:scale-110 transition-transform" />
+        </button>
+
         <div className="flex bg-black/40 rounded-xl p-1 border border-white/5">
           <button
             onClick={() => onViewChange?.('code')}
@@ -166,6 +137,16 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar })
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
+        {/* Run Code Button (Opens Terminal in Drawer) */}
+        <button
+          onClick={onOpenMenu}
+          disabled={currentView === 'whiteboard'}
+          className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-sm font-bold rounded-lg transition-all active:scale-95 shadow-lg shadow-emerald-900/20"
+        >
+          <Terminal className="w-4 h-4" />
+          Terminal
+        </button>
+
         {/* Management Sidebar Toggle */}
         <button
           onClick={onOpenSidebar}
@@ -180,22 +161,6 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar })
           </span>
         </button>
 
-        {/* Run Code Button */}
-        <button
-          onClick={handleRunCode}
-          disabled={isExecuting || currentView === 'whiteboard'}
-          className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-sm font-bold rounded-lg transition-all active:scale-95 shadow-lg shadow-emerald-900/20"
-        >
-          {isExecuting ? (
-            <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></span>
-          ) : (
-            <>
-              <Play className="w-4 h-4" />
-              Run
-            </>
-          )}
-        </button>
-
         {/* Leave Room */}
         <button
           onClick={handleLeave}
@@ -205,38 +170,6 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar })
           Leave
         </button>
       </div>
-
-      {/* Execution Result Modal */}
-      {executionResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">Execution Result</h3>
-              <button
-                onClick={() => setExecutionResult(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="bg-slate-900 rounded-lg p-4 font-mono text-sm text-green-400 overflow-auto max-h-60">
-              {executionResult.output || executionResult.error || 'No output'}
-            </div>
-
-            <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-              <span>Exit Code: {executionResult.exitCode ?? 'N/A'}</span>
-              <span>Time: {executionResult.executionTime || 'N/A'}</span>
-            </div>
-
-            {executionResult.note && (
-              <p className="mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                ℹ️ {executionResult.note}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Online Users Modal */}
       <UserModal 

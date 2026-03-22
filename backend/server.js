@@ -8,8 +8,16 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import Room from './models/Room.js';
+import File from './models/File.js';
 import authRoutes from './routes/auth.js';
+import { verifyToken } from './middleware/auth.js';
 import { connectRedis } from './config/redis.js';
+import { exec } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
 
 const ALLOWED_ORIGINS = [
   'https://livedesk-nine.vercel.app',
@@ -42,6 +50,64 @@ app.use(express.json({ limit: '50mb' })); // Increased limit for whiteboard data
 
 // Routes
 app.use('/api/auth', authRoutes);
+
+/**
+ * FILE SYSTEM API
+ */
+
+// Get all files for a user
+app.get('/api/files', verifyToken, async (req, res) => {
+  try {
+    const files = await File.find({ userId: req.userId }).sort({ createdAt: -1 });
+    res.json(files);
+  } catch (error) {
+    console.error('Error fetching files:', error);
+    res.status(500).json({ error: 'Failed to fetch files' });
+  }
+});
+
+// Save/Upload a file
+app.post('/api/files', verifyToken, async (req, res) => {
+  try {
+    const { name, type, size, content, roomId, isSnapshot, isBoardSnapshot, isFullSnapshot } = req.body;
+    
+    // Check if file with same name exists for this user in this room
+    let file = await File.findOne({ userId: req.userId, name, roomId });
+    
+    if (file) {
+      // Update existing file
+      file.content = content;
+      file.size = size;
+      file.type = type;
+      file.timestamp = new Date();
+      await file.save();
+    } else {
+      // Create new file
+      file = await File.create({
+        userId: req.userId,
+        name, type, size, content, roomId,
+        isSnapshot, isBoardSnapshot, isFullSnapshot
+      });
+    }
+    
+    res.status(201).json(file);
+  } catch (error) {
+    console.error('Error saving file:', error);
+    res.status(500).json({ error: 'Failed to save file' });
+  }
+});
+
+// Delete a file
+app.delete('/api/files/:fileId', verifyToken, async (req, res) => {
+  try {
+    const file = await File.findOneAndDelete({ _id: req.params.fileId, userId: req.userId });
+    if (!file) return res.status(404).json({ error: 'File not found' });
+    res.json({ message: 'File deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
 
 // Environment variables
 const PORT = process.env.PORT || 3001;
@@ -133,58 +199,72 @@ app.delete('/api/room/:roomId', async (req, res) => {
   }
 });
 
-// ============================================================================
-// FUTURE SCOPE: CODE EXECUTION ROUTE (Judge0 API integration placeholder)
-// ============================================================================
-
 /**
  * POST /api/execute
- * Execute code - TO BE INTEGRATED WITH JUDGE0 API
- *
- * Future implementation:
- * 1. Send code to Judge0 API (https://judge0.com)
- * 2. Poll for results
- * 3. Return output to frontend
- *
- * For now, returns a mock response
+ * Execute code
  */
 app.post('/api/execute', async (req, res) => {
   try {
     const { code, language, roomId } = req.body;
-
     console.log(`[Code Execution] Room: ${roomId}, Language: ${language}`);
 
-    // ============================================================
-    // FUTURE: Integrate with Judge0 API
-    // ============================================================
-    // const response = await axios.post('https://api.judge0.com/submissions', {
-    //   source_code: code,
-    //   language_id: languageIds[language],
-    //   stdin: ''
-    // });
-    // Poll for results...
-    // ============================================================
-
-    // Mock response for now
-    const mockOutput = {
-      output: 'Code execution will be integrated with Judge0 API',
-      executionTime: '0ms',
-      exitCode: 0,
-      note: 'This is a placeholder. Integrate Judge0 API for actual execution.'
-    };
-
-    // Save execution result to room
-    const room = await Room.findOne({ roomId });
-    if (room) {
-      room.lastExecution = {
-        output: mockOutput.output,
-        exitCode: mockOutput.exitCode,
-        executedAt: new Date()
-      };
-      await room.save();
+    if (!code) {
+      return res.status(400).json({ error: 'No code provided' });
     }
 
-    res.json(mockOutput);
+    // Supported languages and their execution commands
+    const configs = {
+      javascript: { ext: 'js', command: 'node' },
+      python: { ext: 'py', command: 'python' },
+    };
+
+    const config = configs[language];
+
+    if (!config) {
+      // Fallback for unsupported languages
+      return res.json({
+        output: `Execution for ${language} is not yet fully implemented on the server. Coming soon!`,
+        exitCode: 0
+      });
+    }
+
+    // Create a temporary file
+    const tempDir = path.join(process.cwd(), 'temp_exec');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir);
+    }
+
+    const fileName = `exec_${roomId}_${Date.now()}.${config.ext}`;
+    const filePath = path.join(tempDir, fileName);
+
+    fs.writeFileSync(filePath, code);
+
+    try {
+      // Execute with a timeout of 5 seconds
+      const { stdout, stderr } = await execPromise(`${config.command} ${filePath}`, {
+        timeout: 5000,
+        maxBuffer: 1024 * 1024 // 1MB
+      });
+
+      // Cleanup
+      fs.unlinkSync(filePath);
+
+      res.json({
+        output: stdout + (stderr ? `\nError Output:\n${stderr}` : ''),
+        exitCode: 0,
+        executionTime: 'N/A'
+      });
+    } catch (error) {
+      // Cleanup on error too
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+      res.json({
+        output: error.stderr || error.message,
+        exitCode: error.code || 1,
+        error: error.message
+      });
+    }
+
   } catch (error) {
     console.error('Code execution error:', error);
     res.status(500).json({ error: 'Code execution failed' });

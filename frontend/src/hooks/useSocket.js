@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useSocketContext } from '../contexts/SocketContext'
 
 /**
@@ -49,9 +49,41 @@ export function useCodeSync(roomId) {
  */
 export function useWhiteboardSync(roomId) {
   const { roomState } = useSocketContext()
-  
+  const [personalData, setPersonalData] = useState(() => {
+    if (roomId === 'personal') {
+      const saved = localStorage.getItem('livedesk-personal-whiteboard')
+      if (saved) {
+        try {
+          return JSON.parse(saved)
+        } catch (e) {
+          console.error('Failed to parse initial personal whiteboard data', e)
+          return null
+        }
+      }
+    }
+    return null
+  })
+
+  // Keep personal data in sync with localStorage changes (e.g., from other tabs)
+  useEffect(() => {
+    if (roomId !== 'personal') return;
+
+    const handleStorageChange = (e) => {
+      if (e.key === 'livedesk-personal-whiteboard') {
+        try {
+          setPersonalData(e.newValue ? JSON.parse(e.newValue) : null)
+        } catch (err) {
+          console.error('Error parsing whiteboard data from storage event', err)
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [roomId]);
+
   if (roomId === 'personal') {
-    return JSON.parse(localStorage.getItem('livedesk-personal-whiteboard') || 'null')
+    return personalData;
   }
   
   return roomState?.whiteboardData

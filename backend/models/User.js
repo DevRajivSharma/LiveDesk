@@ -29,6 +29,34 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: '#6366f1'
   },
+  bio: {
+    type: String,
+    default: ''
+  },
+  github: {
+    type: String,
+    default: ''
+  },
+  twitter: {
+    type: String,
+    default: ''
+  },
+  website: {
+    type: String,
+    default: ''
+  },
+  location: {
+    type: String,
+    default: ''
+  },
+  occupation: {
+    type: String,
+    default: ''
+  },
+  skills: {
+    type: [String],
+    default: []
+  },
   resetPasswordToken: String,
   resetPasswordExpires: Date
 }, {

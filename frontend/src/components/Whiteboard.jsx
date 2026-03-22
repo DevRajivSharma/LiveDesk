@@ -3,7 +3,7 @@ import { Excalidraw } from '@excalidraw/excalidraw'
 import { useSocketContext } from '../contexts/SocketContext'
 import { useWhiteboardSync } from '../hooks/useSocket'
 
-function Whiteboard({ roomId, isLocked }) {
+function Whiteboard({ roomId, isLocked, onChange }) {
   const { emitWhiteboardUpdate } = useSocketContext()
   const syncedData = useWhiteboardSync(roomId)
 
@@ -17,17 +17,18 @@ function Whiteboard({ roomId, isLocked }) {
 
   // Update whiteboard when synced data changes
   useEffect(() => {
-    if (!syncedData || !excalidrawAPI) return
+    if (!syncedData || syncedData === 'null' || !excalidrawAPI) return
 
     // Don't apply updates while the user is actively drawing/dragging to prevent jumps
     if (isDrawing.current) return;
 
     try {
       // If this matches what we already have, skip to avoid loops
-      const sceneDataStr = JSON.stringify(syncedData);
+      const sceneDataStr = typeof syncedData === 'string' ? syncedData : JSON.stringify(syncedData);
       if (sceneDataStr === lastProcessedData.current) return;
 
-      if (!syncedData.elements) return;
+      const parsedData = typeof syncedData === 'string' ? JSON.parse(syncedData) : syncedData;
+      if (!parsedData || !parsedData.elements) return;
 
       console.log('📥 Applying remote whiteboard sync...');
       
@@ -38,10 +39,13 @@ function Whiteboard({ roomId, isLocked }) {
       isRemoteUpdating.current = true;
 
       excalidrawAPI.updateScene({
-        elements: syncedData.elements,
-        files: syncedData.files || {},
+        elements: parsedData.elements,
+        files: parsedData.files || {},
         commitToHistory: false
       });
+
+      // Also notify parent of the remote change, but only if it's actually different
+      onChange?.(parsedData);
 
       // Reset the flag after a short delay to allow Excalidraw to finish its update cycle
       setTimeout(() => {
@@ -51,7 +55,7 @@ function Whiteboard({ roomId, isLocked }) {
     } catch (err) {
       console.error('Error parsing whiteboard data:', err)
     }
-  }, [syncedData, excalidrawAPI])
+  }, [syncedData, excalidrawAPI]) // Removed onChange from dependencies to avoid potential loops if parent doesn't memoize it
 
   // Handle local changes
   const handleElementsChange = useCallback((elements_, appState, files_) => {
@@ -74,7 +78,8 @@ function Whiteboard({ roomId, isLocked }) {
     isDrawing.current = interactionActive && !appState.pointerInteractionFinished;
 
     // Check if there are elements to sync
-    if (!elements_ || elements_.length === 0) return;
+    // If elements is an empty array, we still want to sync the clear state
+    if (!elements_) return;
 
     // Check if the content actually changed (ignoring UI state like selection)
     const currentSceneData = {
@@ -86,10 +91,15 @@ function Whiteboard({ roomId, isLocked }) {
     // If this change matches what we just processed (remote or local), skip emitting
     if (currentSceneDataStr === lastProcessedData.current) return;
 
+    // Update our tracker so we don't re-process our own change
+    lastProcessedData.current = currentSceneDataStr;
+
+    // Notify parent of the change only when data actually changes
+    onChange?.(currentSceneData);
+
     // Personal workspace logic
     if (roomId === 'personal') {
       localStorage.setItem('livedesk-personal-whiteboard', currentSceneDataStr)
-      lastProcessedData.current = currentSceneDataStr;
       return
     }
 
@@ -107,31 +117,71 @@ function Whiteboard({ roomId, isLocked }) {
       // to avoid race conditions
       console.log('📤 Sending whiteboard update...');
       
-      // Update our tracker so we don't re-process our own emit
-      lastProcessedData.current = currentSceneDataStr;
-      
       emitWhiteboardUpdate(roomId, currentSceneDataStr)
     }, delay)
-  }, [roomId, emitWhiteboardUpdate, excalidrawAPI, isLocked])
+  }, [roomId, emitWhiteboardUpdate, excalidrawAPI, isLocked, onChange])
 
   // Prepare initial data from synced data if available
   const getInitialData = () => {
-    if (!syncedData || !syncedData.elements) return { elements: [], files: {} };
-    return {
-      elements: syncedData.elements,
-      files: syncedData.files || {}
-    };
+    if (!syncedData) return { elements: [], files: {} };
+    
+    try {
+      const data = typeof syncedData === 'string' ? JSON.parse(syncedData) : syncedData;
+      if (!data || !data.elements) return { elements: [], files: {} };
+      
+      return {
+        elements: data.elements,
+        files: data.files || {}
+      };
+    } catch (e) {
+      console.error('Error in getInitialData:', e);
+      return { elements: [], files: {} };
+    }
   };
+
+  // Handle manual whiteboard loads (e.g., from snapshots or files)
+  useEffect(() => {
+    const handleManualLoad = (e) => {
+      const { data } = e.detail;
+      if (excalidrawAPI && data) {
+        console.log('🖼️ Loading manual whiteboard state...');
+        
+        const sceneDataStr = typeof data === 'string' ? data : JSON.stringify(data);
+        lastProcessedData.current = sceneDataStr;
+        
+        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+        
+        excalidrawAPI.updateScene({
+          elements: parsedData.elements,
+          files: parsedData.files || {},
+          commitToHistory: true
+        });
+
+        // Force local state update to ensure persistence
+        onChange?.(parsedData);
+        
+        if (roomId === 'personal') {
+          localStorage.setItem('livedesk-personal-whiteboard', sceneDataStr);
+        } else {
+          emitWhiteboardUpdate(roomId, sceneDataStr);
+        }
+      }
+    };
+
+    window.addEventListener('livedesk-load-whiteboard', handleManualLoad);
+    return () => window.removeEventListener('livedesk-load-whiteboard', handleManualLoad);
+  }, [excalidrawAPI, roomId, onChange, emitWhiteboardUpdate]);
 
   return (
     <div className={`h-full w-full excalidraw-wrapper bg-[#0a0a0a] ${isLocked ? 'pointer-events-none' : ''}`}>
       {isLocked && (
-        <div className="absolute top-4 right-4 z-[50] bg-red-500/90 text-white text-[10px] font-black px-2 py-1 rounded uppercase tracking-widest shadow-lg">
+        <div className="absolute top-4 right-4 z-[50] bg-red-500/90 text-white text-[10px] font-black px-2 py-1 rounded-none uppercase tracking-widest shadow-lg">
           Locked by Host
         </div>
       )}
       {Excalidraw ? (
         <Excalidraw
+          key={roomId} // Force remount when room changes to reset initialData
           viewModeEnabled={isLocked}
           excalidrawAPI={(api) => {
             if (api) setExcalidrawAPI(api)

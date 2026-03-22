@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import { client as redis } from '../config/redis.js';
 import { sendOTP, sendResetLink } from '../utils/mailer.js';
 import crypto from 'crypto';
+import { verifyToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -166,6 +167,64 @@ router.post('/reset-password/:token', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error during password reset' });
+  }
+});
+
+/**
+ * GET /api/auth/profile
+ * Fetch user profile data
+ */
+router.get('/profile', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error fetching profile' });
+  }
+});
+
+/**
+ * PUT /api/auth/profile
+ * Update user profile
+ */
+router.put('/profile', verifyToken, async (req, res) => {
+  try {
+    const {
+      username, bio, github, twitter,
+      website, location, occupation, skills
+    } = req.body;
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Check if new username is already taken
+    if (username && username !== user.username) {
+      const existing = await User.findOne({ username });
+      if (existing) return res.status(400).json({ message: 'Username already taken' });
+      user.username = username;
+    }
+
+    // Update other fields
+    if (bio !== undefined) user.bio = bio;
+    if (github !== undefined) user.github = github;
+    if (twitter !== undefined) user.twitter = twitter;
+    if (website !== undefined) user.website = website;
+    if (location !== undefined) user.location = location;
+    if (occupation !== undefined) user.occupation = occupation;
+    if (skills !== undefined) user.skills = skills;
+
+    await user.save();
+
+    // Don't send back password
+    const updatedUser = user.toObject();
+    delete updatedUser.password;
+
+    res.json(updatedUser);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error updating profile' });
   }
 });
 

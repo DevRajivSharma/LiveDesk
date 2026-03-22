@@ -4,6 +4,8 @@ import { useSocketContext } from '../contexts/SocketContext'
 import { useCodeSync } from '../hooks/useSocket'
 import { Code2 } from 'lucide-react'
 
+import { Play } from 'lucide-react'
+
 const LANGUAGE_OPTIONS = [
   { value: 'javascript', label: 'JavaScript' },
   { value: 'typescript', label: 'TypeScript' },
@@ -15,7 +17,7 @@ const LANGUAGE_OPTIONS = [
   { value: 'json', label: 'JSON' }
 ]
 
-function CodeEditor({ roomId, onLanguageChange, externalLanguage, isLocked }) {
+function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, isLocked, onRun, isExecuting }) {
   const { emitCodeChange, emitCodeComplete, emitLanguageChange, currentUser } = useSocketContext()
   const { code, language: syncedLanguage } = useCodeSync(roomId)
   const user = JSON.parse(localStorage.getItem('livedesk-user') || '{}');
@@ -52,9 +54,11 @@ function CodeEditor({ roomId, onLanguageChange, externalLanguage, isLocked }) {
 
   // Handle code change with debounce
   const handleCodeChange = useCallback((value) => {
-    if (!value || !roomId) return
+    // If value is empty string, we still want to save it (cleared state)
+    if (value === undefined || !roomId) return
 
     isLocalChange.current = true
+    onCodeChange?.(value)
 
     // Personal workspace logic
     if (roomId === 'personal') {
@@ -75,7 +79,7 @@ function CodeEditor({ roomId, onLanguageChange, externalLanguage, isLocked }) {
     setTimeout(() => {
       isLocalChange.current = false
     }, 200)
-  }, [roomId, currentLanguage, emitCodeChange])
+  }, [roomId, currentLanguage, emitCodeChange, onCodeChange])
 
   // Handle code change complete (for DB save)
   const handleEditorChange = useCallback((value) => {
@@ -106,30 +110,68 @@ function CodeEditor({ roomId, onLanguageChange, externalLanguage, isLocked }) {
     }
   }, [code])
 
+  // Handle manual code loads (e.g., from snippets or files)
+  useEffect(() => {
+    const handleManualLoad = (e) => {
+      const { code: newCode, language: newLang } = e.detail;
+      if (editorRef.current) {
+        editorRef.current.setValue(newCode);
+        if (newLang) {
+          onLanguageChange?.(newLang);
+        }
+        // Force update local state
+        onCodeChange?.(newCode);
+        
+        if (roomId === 'personal') {
+          localStorage.setItem('livedesk-personal-code', newCode);
+          if (newLang) localStorage.setItem('livedesk-personal-lang', newLang);
+        } else {
+          emitCodeChange(roomId, newCode, newLang || currentLanguage);
+        }
+      }
+    };
+
+    window.addEventListener('livedesk-load-code', handleManualLoad);
+    return () => window.removeEventListener('livedesk-load-code', handleManualLoad);
+  }, [roomId, currentLanguage, emitCodeChange, onCodeChange, onLanguageChange]);
+
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a]">
-      {/* Editor Header with Language Selector */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#111] border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <Code2 className="w-4 h-4 text-emerald-400" />
-          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Editor</span>
+      {/* Editor Header with Language Selector and Run Button */}
+      <div className="flex items-center justify-between px-6 py-2 bg-[#0a0a0a] border-b border-white/10">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-blue-400">
+            <Code2 className="w-4 h-4" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em]">Editor</span>
+          </div>
           <div className="h-4 w-[1px] bg-white/10 mx-2" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Language:</span>
-          <select
-            value={currentLanguage}
-            onChange={handleLanguageChange}
-            className="px-3 py-1.5 text-xs bg-[#1a1a1a] text-slate-200 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 hover:bg-[#222] transition-colors font-medium"
+          <div className="flex items-center gap-3">
+            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Language:</span>
+            <select
+              value={currentLanguage}
+              onChange={handleLanguageChange}
+              className="px-3 py-1 bg-white/5 border border-white/10 text-[9px] font-bold text-slate-300 uppercase focus:outline-none focus:border-blue-500 transition-all cursor-pointer"
+            >
+              {LANGUAGE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value} className="bg-[#0a0a0a]">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Integrated Run Button */}
+        {onRun && (
+          <button 
+            onClick={onRun}
+            disabled={isExecuting}
+            className="flex items-center gap-2 px-5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
           >
-            {LANGUAGE_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="text-xs font-medium text-slate-500">
-          {user?.username || 'Anonymous'}
-        </div>
+            {isExecuting ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Play className="w-3 h-3" />}
+            Run Script
+          </button>
+        )}
       </div>
 
       {/* Monaco Editor */}
