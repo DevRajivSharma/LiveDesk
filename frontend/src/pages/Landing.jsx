@@ -22,13 +22,15 @@ import {
 } from 'lucide-react'
 import Logo from '../components/Logo'
 import demo1 from '../videos/LiveDesk_Demo1.mp4'
-import demo2 from '../videos/LiveDesk)Demo2.mp4'
+import demo2 from '../videos/LiveDesk_Demo2.mp4'
 
 function Landing() {
-  const [videoPlaying, setVideoPlaying] = useState(true)
-  const [isMuted, setIsMuted] = useState(true)
   const [currentVideo, setCurrentVideo] = useState(null)
   const videoRef = useRef(null)
+  const videoSectionRef = useRef(null)
+  const toolsSectionRef = useRef(null)
+  const featuresSectionRef = useRef(null)
+  const ctaSectionRef = useRef(null)
   const videoList = [demo1, demo2]
 
   useEffect(() => {
@@ -48,21 +50,15 @@ function Landing() {
     if (videoRef.current) {
       videoRef.current.load()
       videoRef.current.play().catch(err => {
-        console.warn("Autoplay was prevented by browser. Retrying muted.", err);
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          setIsMuted(true);
-          videoRef.current.play();
-        }
+        console.warn("Autoplay was prevented by browser.", err);
       });
     }
   }
 
-  const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !videoRef.current.muted;
-      setIsMuted(videoRef.current.muted);
-    }
+  const scrollToSection = (sectionRef) => {
+    requestAnimationFrame(() => {
+      sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const features = [
@@ -122,10 +118,34 @@ function Landing() {
       </div>
 
       {/* Navigation */}
-      <nav className="relative z-10 flex items-center justify-between px-6 lg:px-12 py-8 border-b border-white/5 bg-black/40 backdrop-blur-md">
+      <nav className="sticky top-0 z-20 flex items-center justify-between px-6 lg:px-12 py-6 border-b border-white/5 bg-black/70 backdrop-blur-md ">
+      <div className='mr-10'>
         <Logo className="w-10 h-10" textClassName="text-xl" />
+      </div>
 
-        <div className="flex items-center gap-8">
+        <div className="hidden ml-6 lg:flex items-center gap-3">
+          <button
+            onClick={() => scrollToSection(videoSectionRef)}
+            className="px-4 py-2 bg-white/5 border border-white/10 text-white font-black rounded-none uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all duration-300 flex items-center gap-2"
+          >
+            <Play className="w-3.5 h-3.5" />
+            VIEW_PROTOCOL
+          </button>
+          <button
+            onClick={() => scrollToSection(toolsSectionRef)}
+            className="px-4 py-2 bg-white/5 border border-white/10 text-white font-black rounded-none uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all duration-300"
+          >
+            TOOLS
+          </button>
+          <button
+            onClick={() => scrollToSection(featuresSectionRef)}
+            className="px-4 py-2 bg-white/5 border border-white/10 text-white font-black rounded-none uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all duration-300"
+          >
+            FEATURES
+          </button>
+        </div>
+
+        <div className="flex items-center gap-4">
           <Link
             to="/login"
             className="text-[10px] font-black text-slate-500 hover:text-white transition-colors uppercase tracking-[0.2em]"
@@ -134,9 +154,9 @@ function Landing() {
           </Link>
           <Link
             to="/register"
-            className="px-8 py-3 bg-white text-black font-black rounded-none uppercase tracking-widest text-[10px] shadow-xl hover:bg-blue-600 hover:text-white transition-all duration-300"
+            className="px-5 py-3 bg-white text-black font-black rounded-none uppercase tracking-widest text-[10px] shadow-xl hover:bg-blue-600 hover:text-white transition-all duration-300"
           >
-            INITIALIZE_ACCOUNT
+            INITIALIZE
           </Link>
         </div>
       </nav>
@@ -172,18 +192,11 @@ function Landing() {
               EXECUTE_START
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </Link>
-            <button 
-              onClick={() => setVideoPlaying(true)}
-              className="px-12 py-5 bg-white/5 border border-white/10 text-white font-black rounded-none uppercase tracking-widest text-xs hover:bg-white/10 transition-all duration-300 flex items-center gap-4"
-            >
-              <Play className="w-4 h-4" />
-              VIEW_PROTOCOL
-            </button>
           </div>
         </div>
 
         {/* Video Container - Sharp & Tech */}
-        <div className="max-w-6xl mx-auto mb-32">
+        <div ref={videoSectionRef} className="max-w-6xl mx-auto mb-32">
           <div className="relative group">
             {/* Main Container */}
             <div className="relative bg-[#0a0a0a] border border-white/5 rounded-none overflow-hidden shadow-2xl">
@@ -207,127 +220,20 @@ function Landing() {
 
               {/* Video/Preview Area */}
               <div className="relative aspect-[16/9] bg-[#050505]">
-                {!videoPlaying ? (
-                  <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-                    {/* Background Loop Video (muted/autoplay) */}
-                    {currentVideo && (
-                      <video
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        className="absolute inset-0 w-full h-full object-cover opacity-30 grayscale"
-                      >
-                        <source src={currentVideo} type="video/mp4" />
-                      </video>
-                    )}
-                    {/* Mock UI Overlay */}
-                    <div className="w-full h-full flex relative z-10">
-                      {/* Editor Side */}
-                      <div className="w-1/2 border-r border-white/5 bg-[#0a0a0a]/80 backdrop-blur-sm">
-                        <div className="flex items-center gap-4 px-4 py-2 border-b border-white/5 bg-[#050505]/50">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-blue-500" />
-                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">EDITOR_CORE</span>
-                          </div>
-                        </div>
-                        <div className="p-6 font-mono text-[11px] text-slate-400 space-y-2">
-                          <div className="flex"><span className="text-slate-800 w-8">01</span><span className="text-blue-500">const</span><span className="text-white"> SESSION</span><span className="text-slate-600"> = </span><span className="text-blue-400">new</span><span className="text-white"> LiveDesk();</span></div>
-                          <div className="flex"><span className="text-slate-800 w-8">02</span></div>
-                          <div className="flex"><span className="text-slate-800 w-8">03</span><span className="text-white">await</span><span className="text-white"> SESSION.</span><span className="text-blue-400">connect</span>({'{'}</div>
-                          <div className="flex"><span className="text-slate-800 w-8">04</span><span className="text-white ml-4">mode:</span><span className="text-blue-500"> 'COLLABORATIVE'</span>,</div>
-                          <div className="flex"><span className="text-slate-800 w-8">05</span><span className="text-white ml-4">sync:</span><span className="text-blue-500"> true</span></div>
-                          <div className="flex"><span className="text-slate-800 w-8">06</span>{'}'});</div>
-                        </div>
-                        {/* Cursors */}
-                        <div className="absolute top-20 left-40 flex items-center gap-0 animate-pulse">
-                          <div className="w-0.5 h-4 bg-blue-500" />
-                          <span className="text-[8px] bg-blue-500 px-1.5 py-0.5 text-white font-black uppercase tracking-tighter">YOU</span>
-                        </div>
-                      </div>
-
-                      {/* Whiteboard Side */}
-                      <div className="w-1/2 bg-[#0a0a0a]/80 backdrop-blur-sm">
-                        <div className="flex items-center gap-4 px-4 py-2 border-b border-white/5 bg-[#050505]/50">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-blue-500" />
-                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">SESSION_BOARD</span>
-                          </div>
-                        </div>
-                        <div className="relative h-full p-6">
-                          {/* Mock Drawing */}
-                          <svg className="absolute inset-0 w-full h-full opacity-20" viewBox="0 0 400 200">
-                            <path d="M50 150 L100 50 L150 100 L250 80 L350 120" stroke="#3b82f6" strokeWidth="1" fill="none" />
-                            <rect x="180" y="60" width="80" height="50" stroke="#3b82f6" strokeWidth="1" fill="none" />
-                            <circle cx="300" cy="100" r="30" stroke="#3b82f6" strokeWidth="1" fill="none" />
-                          </svg>
-                          <div className="flex flex-col gap-2">
-                            <div className="w-32 h-1 bg-white/5" />
-                            <div className="w-24 h-1 bg-white/5" />
-                            <div className="w-40 h-1 bg-white/5" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Play Button Overlay */}
-                    <button
-                      onClick={() => setVideoPlaying(true)}
-                      className="absolute inset-0 flex items-center justify-center bg-black/60 group-hover:bg-black/40 transition-colors z-20"
+                <div className="absolute inset-0 bg-black">
+                  {currentVideo && (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="w-full h-full object-contain"
+                      onEnded={handleVideoEnd}
                     >
-                      <div className="w-20 h-20 bg-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-[0_0_40px_rgba(37,99,235,0.4)]">
-                        <Play className="w-8 h-8 text-white ml-1 fill-white" />
-                      </div>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black">
-                    {currentVideo && (
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        muted={isMuted}
-                        className="w-full h-full object-contain"
-                        onEnded={handleVideoEnd}
-                      >
-                        <source src={currentVideo} type="video/mp4" />
-                        Your browser does not support the video tag.
-                      </video>
-                    )}
-                    <div className="absolute bottom-6 right-6 flex items-center gap-4 z-30">
-                      <button 
-                        onClick={toggleMute}
-                        className="px-4 py-2 bg-blue-600/80 hover:bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest transition-all"
-                      >
-                        {isMuted ? 'UNMUTE_SYSTEM' : 'MUTE_SYSTEM'}
-                      </button>
-                      <button 
-                        onClick={() => setVideoPlaying(false)}
-                        className="px-4 py-2 bg-black/50 hover:bg-black/80 text-white text-[10px] font-black uppercase tracking-widest transition-all"
-                      >
-                        EXIT_DEMO
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Bottom Bar */}
-              <div className="flex items-center justify-between px-6 py-3 bg-[#050505] border-t border-white/5">
-                <div className="flex items-center gap-8">
-                  <div className="flex items-center gap-2 text-slate-600">
-                    <Users className="w-3 h-3" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">3_NODES_CONNECTED</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-blue-500/50">
-                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">VOICE_LINK_ACTIVE</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 bg-blue-600/20 border border-blue-600/30" />
-                  <div className="w-6 h-6 bg-blue-600/40 border border-blue-600/50 -ml-1" />
-                  <div className="w-6 h-6 bg-blue-600/60 border border-blue-600/70 -ml-1" />
+                      <source src={currentVideo} type="video/mp4" />
+                      Your browser does not support the video tag.
+                    </video>
+                  )}
                 </div>
               </div>
             </div>
@@ -335,7 +241,7 @@ function Landing() {
         </div>
 
         {/* Tools Grid */}
-        <div className="max-w-6xl mx-auto mb-32">
+        <div ref={toolsSectionRef} className="max-w-6xl mx-auto mb-32">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-white/5 border border-white/5">
             {tools.map((tool, i) => (
               <div
@@ -351,7 +257,7 @@ function Landing() {
         </div>
 
         {/* Features Section */}
-        <div className="max-w-6xl mx-auto mb-32">
+        <div ref={featuresSectionRef} className="max-w-6xl mx-auto mb-32">
           <div className="text-center mb-20">
             <h2 className="text-4xl lg:text-5xl font-black text-white mb-6 uppercase tracking-tight">
               CORE_SYSTEM_
@@ -381,7 +287,7 @@ function Landing() {
         </div>
 
         {/* CTA Section */}
-        <div className="max-w-4xl mx-auto">
+        <div ref={ctaSectionRef} className="max-w-4xl mx-auto">
           <div className="relative bg-blue-600 p-16 lg:p-24 text-center overflow-hidden">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20" />
             <div className="relative z-10">

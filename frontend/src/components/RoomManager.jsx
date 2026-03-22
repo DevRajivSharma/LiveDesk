@@ -104,8 +104,8 @@ function RoomManager() {
                 disabled={!isConnected}
                 className="w-full h-16 bg-white text-black hover:bg-blue-600 hover:text-white disabled:bg-slate-900 disabled:text-slate-700 font-black transition-all flex items-center justify-center gap-3 uppercase tracking-widest text-[10px] shadow-xl"
               >
-                <Plus className="w-4 h-4" />
-                Create New Protocol
+                <Plus className="" />
+                Create New 
               </button>
             </div>
           </div>
@@ -150,7 +150,7 @@ function RoomManager() {
                 ) : (
                   <>
                     <Rocket className="w-4 h-4" />
-                    Synchronize Session
+                     Join
                   </>
                 )}
               </button>
