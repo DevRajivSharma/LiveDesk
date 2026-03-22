@@ -551,67 +551,31 @@ io.on('connection', (socket) => {
 
   /**
    * EVENT: webrtc-offer
-   * WebRTC signaling - User A wants to call User B
    */
   socket.on('webrtc-offer', ({ roomId, offer, targetUserId, fromUserId }) => {
-    console.log(`[WebRTC] Offer from ${fromUserId} to ${targetUserId}`);
-    
-    // Find the socket ID for the target user
-    let targetSocketId = null;
-    for (const [sId, info] of userSockets.entries()) {
-      if (info.roomId === roomId && info.userId === targetUserId) {
-        targetSocketId = sId;
-        break;
-      }
-    }
-
+    const targetSocketId = [...userSockets.entries()].find(([sId, info]) => info.roomId === roomId && info.userId === targetUserId)?.[0];
     if (targetSocketId) {
       io.to(targetSocketId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
-    } else {
-      // Fallback to broadcast if target socket not found (though targeted is preferred)
-      socket.to(roomId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
     }
   });
 
   /**
    * EVENT: webrtc-answer
-   * WebRTC signaling - User B responds to offer
    */
   socket.on('webrtc-answer', ({ roomId, answer, targetUserId, fromUserId }) => {
-    console.log(`[WebRTC] Answer from ${fromUserId} to ${targetUserId}`);
-    
-    let targetSocketId = null;
-    for (const [sId, info] of userSockets.entries()) {
-      if (info.roomId === roomId && info.userId === targetUserId) {
-        targetSocketId = sId;
-        break;
-      }
-    }
-
+    const targetSocketId = [...userSockets.entries()].find(([sId, info]) => info.roomId === roomId && info.userId === targetUserId)?.[0];
     if (targetSocketId) {
       io.to(targetSocketId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
-    } else {
-      socket.to(roomId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
     }
   });
 
   /**
    * EVENT: webrtc-ice-candidate
-   * WebRTC ICE candidate exchange
    */
   socket.on('webrtc-ice-candidate', ({ roomId, candidate, targetUserId, fromUserId }) => {
-    let targetSocketId = null;
-    for (const [sId, info] of userSockets.entries()) {
-      if (info.roomId === roomId && info.userId === targetUserId) {
-        targetSocketId = sId;
-        break;
-      }
-    }
-
+    const targetSocketId = [...userSockets.entries()].find(([sId, info]) => info.roomId === roomId && info.userId === targetUserId)?.[0];
     if (targetSocketId) {
       io.to(targetSocketId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
-    } else {
-      socket.to(roomId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
     }
   });
 

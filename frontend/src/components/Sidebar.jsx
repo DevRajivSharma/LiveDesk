@@ -21,62 +21,231 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
   const { users, currentUser, socket } = useSocketContext();
   const isAdmin = settings?.adminId === currentUser?.id;
 
-  useEffect(() => {
-    if (settings?.adminId && currentUser?.id) {
-      console.log(`🔐 Admin Check: RoomAdmin=${settings.adminId}, CurrentUser=${currentUser.id}, Match=${isAdmin}`);
-    }
-  }, [settings?.adminId, currentUser?.id, isAdmin]);
-
   const [isMuted, setIsMuted] = useState(true);
-  const isMutedRef = useRef(true); // mirror for closures
-
-  // Always-current refs — no stale closure issues
-  const localStreamRef = useRef(null);
-  const [localStreamState, setLocalStreamState] = useState(null);
-
-  const pcRef = useRef({});                 // userId -> RTCPeerConnection
-  const transceiversRef = useRef({});       // userId -> RTCRtpTransceiver
-  const makingOfferRef = useRef({});        // userId -> bool
-  const ignoreOfferRef = useRef({});        // userId -> bool
-
+  const [localStream, setLocalStream] = useState(null);
+  const pcRef = useRef({}); // userId -> RTCPeerConnection
   const [remoteStreams, setRemoteStreams] = useState({});
   const [speakingUsers, setSpeakingUsers] = useState({});
-
+  
   const audioContextRef = useRef(null);
   const analysersRef = useRef({});
-  const speakingRafRef = useRef({});        // userId -> raf id
-
   const isMicLocked = settings?.lockMic && !isAdmin;
 
-  // Keep ref in sync with state so closures always read the right value
-  const syncMutedRef = (val) => {
-    isMutedRef.current = val;
-    setIsMuted(val);
+  // ─── 1. Initialize Local Media ──────────────────────────────────────────
+  useEffect(() => {
+    const initLocalStream = async () => {
+      try {
+        console.log('[WebRTC] Initializing local audio...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        
+        // Start muted by default
+        stream.getAudioTracks().forEach(track => {
+          track.enabled = false;
+        });
+        
+        setLocalStream(stream);
+        setupSpeakingDetection(stream, currentUser.id);
+      } catch (err) {
+        console.error('[WebRTC] Failed to get local stream:', err);
+      }
+    };
+
+    if (!localStream) {
+      initLocalStream();
+    }
+
+    return () => {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  // ─── 2. Handle Mic Toggle (Track Enabled/Disabled) ──────────────────────
+  const handleMuteToggle = () => {
+    if (isMicLocked) return;
+    const nextMuteState = !isMuted;
+    
+    if (localStream) {
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = !nextMuteState;
+      });
+    }
+    
+    setIsMuted(nextMuteState);
+    socket?.emit('mic-status-change', { roomId, userId: currentUser.id, isMuted: nextMuteState });
   };
 
   useEffect(() => {
-    if (isMicLocked && !isMutedRef.current) {
-      handleMuteOff();
+    if (isMicLocked && !isMuted) {
+      if (localStream) {
+        localStream.getAudioTracks().forEach(track => track.enabled = false);
+      }
+      setIsMuted(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMicLocked]);
 
-  // ─── Speaking detection ───────────────────────────────────────────────────
+  // ─── 3. WebRTC Mesh Logic ───────────────────────────────────────────────
+  const createPeerConnection = useCallback((targetUserId, isInitiator) => {
+    if (pcRef.current[targetUserId]) return pcRef.current[targetUserId];
+
+    console.log(`[WebRTC] Creating PC for ${targetUserId}, initiator=${isInitiator}`);
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
+    });
+
+    // Add local tracks
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket?.emit('webrtc-ice-candidate', {
+          roomId,
+          candidate: event.candidate,
+          targetUserId,
+          fromUserId: currentUser.id
+        });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      console.log(`[WebRTC] Received remote track from ${targetUserId}`);
+      const stream = event.streams[0];
+      setRemoteStreams(prev => ({ ...prev, [targetUserId]: stream }));
+      setupSpeakingDetection(stream, targetUserId);
+    };
+
+    pc.onnegotiationneeded = async () => {
+      if (isInitiator) {
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket?.emit('webrtc-offer', {
+            roomId,
+            offer: pc.localDescription,
+            targetUserId,
+            fromUserId: currentUser.id
+          });
+        } catch (err) {
+          console.error(`[WebRTC] Error creating offer for ${targetUserId}:`, err);
+        }
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+        cleanupPeer(targetUserId);
+      }
+    };
+
+    pcRef.current[targetUserId] = pc;
+    return pc;
+  }, [localStream, socket, roomId, currentUser?.id]);
+
+  const cleanupPeer = useCallback((userId) => {
+    if (pcRef.current[userId]) {
+      pcRef.current[userId].close();
+      delete pcRef.current[userId];
+    }
+    setRemoteStreams(prev => {
+      const newState = { ...prev };
+      delete newState[userId];
+      return newState;
+    });
+    teardownSpeakingDetection(userId);
+  }, []);
+
+  // ─── 4. Signaling Handlers ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!socket || !currentUser?.id || !localStream) return;
+
+    socket.on('webrtc-offer', async ({ offer, fromUserId }) => {
+      console.log(`[WebRTC] Received offer from ${fromUserId}`);
+      const pc = createPeerConnection(fromUserId, false);
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('webrtc-answer', {
+          roomId,
+          answer: pc.localDescription,
+          targetUserId: fromUserId,
+          fromUserId: currentUser.id
+        });
+      } catch (err) {
+        console.error(`[WebRTC] Error answering offer from ${fromUserId}:`, err);
+      }
+    });
+
+    socket.on('webrtc-answer', async ({ answer, fromUserId }) => {
+      console.log(`[WebRTC] Received answer from ${fromUserId}`);
+      const pc = pcRef.current[fromUserId];
+      if (pc) {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        } catch (err) {
+          console.error(`[WebRTC] Error setting remote description for ${fromUserId}:`, err);
+        }
+      }
+    });
+
+    socket.on('webrtc-ice-candidate', async ({ candidate, fromUserId }) => {
+      const pc = pcRef.current[fromUserId];
+      if (pc) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.error(`[WebRTC] Error adding ICE candidate for ${fromUserId}:`, err);
+        }
+      }
+    });
+
+    socket.on('user-joined', (user) => {
+      if (user.id !== currentUser.id) {
+        console.log(`[WebRTC] User joined: ${user.id}, initiating connection`);
+        createPeerConnection(user.id, true);
+      }
+    });
+
+    socket.on('user-left', ({ userId }) => {
+      console.log(`[WebRTC] User left: ${userId}, cleaning up`);
+      cleanupPeer(userId);
+    });
+
+    // Proactively connect to existing users when we first join
+    users.forEach(user => {
+      if (user.id !== currentUser.id && !pcRef.current[user.id]) {
+        createPeerConnection(user.id, true);
+      }
+    });
+
+    return () => {
+      socket.off('webrtc-offer');
+      socket.off('webrtc-answer');
+      socket.off('webrtc-ice-candidate');
+      socket.off('user-joined');
+      socket.off('user-left');
+    };
+  }, [socket, currentUser?.id, localStream, createPeerConnection, cleanupPeer, users]);
+
+  // ─── 5. Audio Utilities ─────────────────────────────────────────────────
   const setupSpeakingDetection = useCallback((stream, userId) => {
-    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    }
-
-    // Cancel any existing loop for this user
-    if (speakingRafRef.current[userId]) {
-      cancelAnimationFrame(speakingRafRef.current[userId]);
-      delete speakingRafRef.current[userId];
-    }
-
     try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
       const source = audioContextRef.current.createMediaStreamSource(stream);
       const analyser = audioContextRef.current.createAnalyser();
-      analyser.fftSize = 512;
+      analyser.fftSize = 256;
       source.connect(analyser);
       analysersRef.current[userId] = analyser;
 
@@ -86,313 +255,27 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       const checkVolume = () => {
         if (!analysersRef.current[userId]) return;
         analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
-        const isSpeaking = sum / bufferLength > 15;
-        setSpeakingUsers(prev =>
-          prev[userId] === isSpeaking ? prev : { ...prev, [userId]: isSpeaking }
-        );
-        speakingRafRef.current[userId] = requestAnimationFrame(checkVolume);
+        let values = 0;
+        for (let i = 0; i < bufferLength; i++) values += dataArray[i];
+        const average = values / bufferLength;
+        const isSpeaking = average > 10;
+        setSpeakingUsers(prev => ({ ...prev, [userId]: isSpeaking }));
+        requestAnimationFrame(checkVolume);
       };
-      speakingRafRef.current[userId] = requestAnimationFrame(checkVolume);
+      checkVolume();
     } catch (e) {
-      console.warn('[WebRTC] Speaking detection error:', e);
+      console.warn('Speaking detection error:', e);
     }
   }, []);
 
   const teardownSpeakingDetection = useCallback((userId) => {
-    if (speakingRafRef.current[userId]) {
-      cancelAnimationFrame(speakingRafRef.current[userId]);
-      delete speakingRafRef.current[userId];
-    }
     delete analysersRef.current[userId];
-    setSpeakingUsers(prev => { const n = { ...prev }; delete n[userId]; return n; });
+    setSpeakingUsers(prev => {
+      const newState = { ...prev };
+      delete newState[userId];
+      return newState;
+    });
   }, []);
-
-  // ─── Get or create peer connection ──────────────────────────────────────
-  // NOTE: We no longer touch localStreamRef inside createPeerConnection.
-  // Track insertion happens AFTER the PC is created, via insertLocalTrack().
-  const createPeerConnection = useCallback((targetUserId) => {
-    if (pcRef.current[targetUserId]) return pcRef.current[targetUserId];
-    if (!currentUser?.id) return null;
-
-    const polite = currentUser.id > targetUserId;
-    console.log(`[WebRTC] Creating PC for ${targetUserId} (polite=${polite})`);
-
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-      ],
-    });
-
-    // Add a sendrecv audio transceiver — no track yet; we'll replaceTrack after mic is granted
-    const transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    transceiversRef.current[targetUserId] = transceiver;
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate && socket) {
-        socket.emit('webrtc-ice-candidate', {
-          roomId, candidate,
-          targetUserId, fromUserId: currentUser.id,
-        });
-      }
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        if (makingOfferRef.current[targetUserId]) return;
-        makingOfferRef.current[targetUserId] = true;
-        console.log(`[WebRTC] Negotiating with ${targetUserId}`);
-        await pc.setLocalDescription();
-        socket?.emit('webrtc-offer', {
-          roomId,
-          offer: pc.localDescription,
-          targetUserId,
-          fromUserId: currentUser.id,
-        });
-      } catch (err) {
-        console.error(`[WebRTC] Negotiation error with ${targetUserId}:`, err);
-      } finally {
-        makingOfferRef.current[targetUserId] = false;
-      }
-    };
-
-    pc.ontrack = ({ streams, track }) => {
-      console.log(`[WebRTC] Got ${track.kind} track from ${targetUserId}`);
-      const stream = streams[0];
-      if (!stream) return;
-      setRemoteStreams(prev => ({ ...prev, [targetUserId]: stream }));
-      setupSpeakingDetection(stream, targetUserId);
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      const state = pc.iceConnectionState;
-      console.log(`[WebRTC] ICE state with ${targetUserId}: ${state}`);
-      if (state === 'failed') {
-        console.log(`[WebRTC] Restarting ICE with ${targetUserId}`);
-        pc.restartIce();
-      }
-    };
-
-    pcRef.current[targetUserId] = pc;
-    return pc;
-  }, [socket, roomId, currentUser?.id, setupSpeakingDetection]);
-
-  // Push the current local track (or null) into one PC's transceiver
-  const insertLocalTrack = useCallback((targetUserId) => {
-    const transceiver = transceiversRef.current[targetUserId];
-    if (!transceiver) return;
-    const track = localStreamRef.current?.getAudioTracks()[0] ?? null;
-    console.log(`[WebRTC] insertLocalTrack → ${targetUserId}, track=${track?.id ?? 'null'}`);
-    transceiver.sender.replaceTrack(track).catch(e =>
-      console.warn(`[WebRTC] replaceTrack failed for ${targetUserId}:`, e)
-    );
-  }, []);
-
-  const cleanupPeer = useCallback((userId) => {
-    pcRef.current[userId]?.close();
-    delete pcRef.current[userId];
-    delete transceiversRef.current[userId];
-    delete makingOfferRef.current[userId];
-    delete ignoreOfferRef.current[userId];
-    teardownSpeakingDetection(userId);
-    setRemoteStreams(prev => { const n = { ...prev }; delete n[userId]; return n; });
-  }, [teardownSpeakingDetection]);
-
-  // ─── Mesh management: create/destroy PCs as users join/leave ────────────
-  useEffect(() => {
-    if (!currentUser?.id || !users?.length) return;
-
-    users.forEach(user => {
-      if (user.id === currentUser.id) return;
-      if (!pcRef.current[user.id]) {
-        const pc = createPeerConnection(user.id);
-        if (pc) {
-          // If we already have a live track, inject it immediately
-          insertLocalTrack(user.id);
-        }
-      }
-    });
-
-    // Prune PCs for departed users
-    const activeIds = new Set(users.map(u => u.id));
-    Object.keys(pcRef.current).forEach(uid => {
-      if (!activeIds.has(uid)) {
-        console.log(`[WebRTC] Pruning PC for departed user ${uid}`);
-        cleanupPeer(uid);
-      }
-    });
-  }, [users, currentUser?.id, createPeerConnection, insertLocalTrack, cleanupPeer]);
-
-  // ─── WebRTC signaling listeners ─────────────────────────────────────────
-  useEffect(() => {
-    if (!socket || !currentUser?.id) return;
-
-    const handleOffer = async ({ offer, fromUserId, targetUserId }) => {
-      if (targetUserId !== currentUser.id) return;
-
-      const pc = createPeerConnection(fromUserId) ?? pcRef.current[fromUserId];
-      if (!pc) return;
-
-      const polite = currentUser.id > fromUserId;
-      const offerCollision =
-        makingOfferRef.current[fromUserId] || pc.signalingState !== 'stable';
-
-      ignoreOfferRef.current[fromUserId] = !polite && offerCollision;
-      if (ignoreOfferRef.current[fromUserId]) {
-        console.log(`[WebRTC] Ignoring offer from ${fromUserId} (glare, impolite)`);
-        return;
-      }
-
-      try {
-        console.log(`[WebRTC] Handling offer from ${fromUserId}`);
-        if (offerCollision && polite) {
-          await Promise.all([
-            pc.setLocalDescription({ type: 'rollback' }),
-            pc.setRemoteDescription(offer),
-          ]);
-        } else {
-          await pc.setRemoteDescription(offer);
-        }
-        await pc.setLocalDescription();
-        socket.emit('webrtc-answer', {
-          roomId,
-          answer: pc.localDescription,
-          targetUserId: fromUserId,
-          fromUserId: currentUser.id,
-        });
-      } catch (err) {
-        console.error(`[WebRTC] Error handling offer from ${fromUserId}:`, err);
-      }
-    };
-
-    const handleAnswer = async ({ answer, fromUserId, targetUserId }) => {
-      if (targetUserId !== currentUser.id) return;
-      const pc = pcRef.current[fromUserId];
-      if (!pc) return;
-      try {
-        console.log(`[WebRTC] Handling answer from ${fromUserId}`);
-        if (pc.signalingState === 'stable') return; // already settled
-        await pc.setRemoteDescription(answer);
-      } catch (err) {
-        console.error(`[WebRTC] Error handling answer from ${fromUserId}:`, err);
-      }
-    };
-
-    const handleIceCandidate = async ({ candidate, fromUserId, targetUserId }) => {
-      if (targetUserId !== currentUser.id) return;
-      const pc = pcRef.current[fromUserId];
-      if (!pc) return;
-      try {
-        await pc.addIceCandidate(candidate);
-      } catch (err) {
-        if (!ignoreOfferRef.current[fromUserId]) {
-          console.error(`[WebRTC] ICE candidate error from ${fromUserId}:`, err);
-        }
-      }
-    };
-
-    const handleUserLeft = ({ userId }) => {
-      console.log(`[WebRTC] User ${userId} left, cleaning up PC`);
-      cleanupPeer(userId);
-    };
-
-    socket.on('webrtc-offer', handleOffer);
-    socket.on('webrtc-answer', handleAnswer);
-    socket.on('webrtc-ice-candidate', handleIceCandidate);
-    socket.on('user-left', handleUserLeft);
-
-    return () => {
-      socket.off('webrtc-offer', handleOffer);
-      socket.off('webrtc-answer', handleAnswer);
-      socket.off('webrtc-ice-candidate', handleIceCandidate);
-      socket.off('user-left', handleUserLeft);
-    };
-  }, [socket, roomId, currentUser?.id, createPeerConnection, cleanupPeer]);
-
-  // ─── Full cleanup on unmount ─────────────────────────────────────────────
-  useEffect(() => {
-    return () => {
-      Object.values(pcRef.current).forEach(pc => pc.close());
-      pcRef.current = {};
-      transceiversRef.current = {};
-
-      localStreamRef.current?.getTracks().forEach(t => t.stop());
-      localStreamRef.current = null;
-
-      Object.keys(speakingRafRef.current).forEach(uid => {
-        cancelAnimationFrame(speakingRafRef.current[uid]);
-      });
-      speakingRafRef.current = {};
-
-      audioContextRef.current?.close().catch(() => {});
-    };
-  }, []);
-
-  // ─── Mic helpers ─────────────────────────────────────────────────────────
-  const handleMuteOn = useCallback(async () => {
-    console.log('[WebRTC] Requesting mic...');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      localStreamRef.current = stream;
-      setLocalStreamState(stream);
-      setupSpeakingDetection(stream, currentUser.id);
-
-      // Push track into EVERY existing peer connection
-      Object.keys(pcRef.current).forEach(insertLocalTrack);
-
-      console.log('[WebRTC] Mic on, track distributed to', Object.keys(pcRef.current).length, 'peers');
-    } catch (err) {
-      console.error('[WebRTC] Mic access denied:', err);
-      syncMutedRef(true);
-    }
-  }, [currentUser?.id, setupSpeakingDetection, insertLocalTrack]);
-
-  const handleMuteOff = useCallback(() => {
-    console.log('[WebRTC] Stopping mic...');
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => t.stop());
-      localStreamRef.current = null;
-      setLocalStreamState(null);
-    }
-
-    // Null out the sender track in every PC (signals mute without destroying the transceiver)
-    Object.keys(pcRef.current).forEach(uid => {
-      const transceiver = transceiversRef.current[uid];
-      if (transceiver) {
-        transceiver.sender.replaceTrack(null).catch(e =>
-          console.warn(`[WebRTC] replaceTrack(null) failed for ${uid}:`, e)
-        );
-      }
-    });
-
-    teardownSpeakingDetection(currentUser?.id);
-  }, [currentUser?.id, teardownSpeakingDetection]);
-
-  // Watch isMuted state and trigger mic on/off
-  useEffect(() => {
-    if (!isMuted) {
-      handleMuteOn();
-    } else {
-      handleMuteOff();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMuted]);
-
-  const handleMuteToggle = () => {
-    if (isMicLocked) return;
-    const next = !isMutedRef.current;
-    syncMutedRef(next);
-    socket?.emit('mic-status-change', { roomId, userId: currentUser.id, isMuted: next });
-  };
 
   // ─── Admin helpers ───────────────────────────────────────────────────────
   const handleToggleSetting = (key) => {
