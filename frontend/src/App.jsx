@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { SocketProvider } from './contexts/SocketContext'
+import Landing from './pages/Landing'
 import Home from './pages/Home'
 import Room from './pages/Room'
 import Login from './pages/Login'
@@ -12,6 +13,12 @@ import { Component } from 'react'
 const PrivateRoute = ({ children }) => {
   const isAuthenticated = !!localStorage.getItem('livedesk-token');
   return isAuthenticated ? children : <Navigate to="/login" />;
+};
+
+// Public Route Component (for Landing page)
+const PublicRoute = ({ children }) => {
+  const isAuthenticated = !!localStorage.getItem('livedesk-token');
+  return isAuthenticated ? <Navigate to="/home" /> : children;
 };
 
 // Error Boundary Class Component
@@ -32,15 +39,15 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50">
-          <div className="bg-white p-8 rounded-lg shadow-lg max-w-md">
-            <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h1>
-            <pre className="bg-slate-100 p-4 rounded text-sm overflow-auto">
+        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a]">
+          <div className="bg-[#141414] border border-white/10 p-8 rounded-2xl shadow-2xl max-w-md">
+            <h1 className="text-2xl font-black text-red-500 mb-4">Oops! Something broke</h1>
+            <pre className="bg-[#1a1a1a] p-4 rounded-xl text-sm overflow-auto text-slate-400 font-mono">
               {this.state.error?.message || 'Unknown error'}
             </pre>
             <button
               onClick={() => window.location.reload()}
-              className="mt-4 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
+              className="mt-4 px-6 py-3 bg-primary-600 text-white font-black rounded-xl uppercase tracking-wider text-sm hover:bg-primary-500 transition-all"
             >
               Reload Page
             </button>
@@ -58,13 +65,18 @@ function App() {
     <ErrorBoundary>
       <SocketProvider>
         <Router>
-          <div className="min-h-screen bg-slate-50">
+          <div className="min-h-screen bg-[#050505]">
             <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
             <Route path="/" element={
+              <PublicRoute>
+                <Landing />
+              </PublicRoute>
+            } />
+            <Route path="/home" element={
               <PrivateRoute>
                 <Home />
               </PrivateRoute>

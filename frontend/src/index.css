@@ -11,7 +11,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #f8fafc;
+  background-color: #050505;
 }
 
 /* Monaco Editor Custom Styles */
@@ -30,24 +30,24 @@ body {
   height: 100%;
 }
 
-/* Custom Scrollbar */
+/* Dark Theme Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #111;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #333;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #444;
 }
 
 /* Animation Classes */
@@ -79,4 +79,15 @@ body {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* Custom focus styles */
+*:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Smooth transitions for interactive elements */
+button, a, input, select {
+  transition: all 0.2s ease;
 }

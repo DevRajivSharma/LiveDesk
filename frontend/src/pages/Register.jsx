@@ -42,7 +42,7 @@ function Register() {
       localStorage.setItem('livedesk-token', res.data.token);
       localStorage.setItem('livedesk-user', JSON.stringify(res.data.user));
       localStorage.setItem('livedesk-username', res.data.user.username);
-      navigate('/');
+      navigate('/home');
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid OTP. Please try again.');
     } finally {
@@ -123,7 +123,7 @@ function Register() {
                 disabled={loading}
                 className="w-full py-5 bg-white text-black font-black rounded-2xl shadow-xl hover:bg-slate-200 disabled:bg-slate-800 disabled:text-slate-600 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-3 uppercase tracking-widest text-sm"
               >
-                {loading ? <span className="animate-spin text-xl">⏳</span> : 'Create Account'}
+                {loading ? <span className="w-6 h-6 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin"></span> : 'Create Account'}
               </button>
             </form>
           ) : (
@@ -147,7 +147,7 @@ function Register() {
                   disabled={loading}
                   className="w-full py-5 bg-white text-black font-black rounded-2xl shadow-xl hover:bg-slate-200 disabled:bg-slate-800 disabled:text-slate-600 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-3 uppercase tracking-widest text-sm"
                 >
-                  {loading ? <span className="animate-spin text-xl">⏳</span> : 'Verify & Continue'}
+                  {loading ? <span className="w-6 h-6 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin"></span> : 'Verify & Continue'}
                 </button>
                 <p className="text-center text-sm font-medium text-slate-500">
                   Didn't receive it?{' '}

@@ -73,7 +73,7 @@ function ForgotPassword() {
                 disabled={loading}
                 className="w-full py-5 bg-white text-black font-black rounded-2xl shadow-xl hover:bg-slate-200 disabled:bg-slate-800 disabled:text-slate-600 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-3 uppercase tracking-widest text-sm"
               >
-                {loading ? <span className="animate-spin text-xl">⏳</span> : 'Send Reset Link'}
+                {loading ? <span className="w-6 h-6 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin"></span> : 'Send Reset Link'}
               </button>
             </form>
           ) : (

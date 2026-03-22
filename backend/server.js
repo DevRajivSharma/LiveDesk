@@ -15,7 +15,8 @@ const ALLOWED_ORIGINS = [
   'https://livedesk-nine.vercel.app',
   'http://localhost:5173',
   'http://localhost:5174',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'http://192.168.1.7:5173'
 ];
 
 await connectRedis();
@@ -217,7 +218,7 @@ io.on('connection', (socket) => {
       const userColor = getRandomColor();
       const user = { 
         id: userId, 
-        name: userName || 'Anonymous', 
+        name: userName , 
         color: userColor, 
         isMuted: true, // Default to muted
         joinedAt: new Date() 
@@ -596,6 +597,6 @@ io.on('connection', (socket) => {
 // START SERVER
 // ============================================================================
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT,'0.0.0.0', () => {
   
 });

@@ -22,7 +22,7 @@ function Login() {
       localStorage.setItem('livedesk-token', res.data.token);
       localStorage.setItem('livedesk-user', JSON.stringify(res.data.user));
       localStorage.setItem('livedesk-username', res.data.user.username);
-      navigate('/');
+      navigate('/home');
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please check your credentials.');
     } finally {
@@ -82,13 +82,12 @@ function Login() {
                 className="w-full px-6 py-4 bg-[#1a1a1a] border border-white/5 rounded-2xl text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary-600/50 focus:border-primary-600/50 transition-all duration-300 font-medium"
               />
             </div>
-
             <button
               type="submit"
               disabled={loading}
               className="w-full py-5 bg-white text-black font-black rounded-2xl shadow-xl hover:bg-slate-200 disabled:bg-slate-800 disabled:text-slate-600 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-3 uppercase tracking-widest text-sm"
             >
-              {loading ? <span className="animate-spin text-xl">⏳</span> : 'Sign In'}
+              {loading ? <span className="w-6 h-6 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin"></span> : 'Sign In'}
             </button>
           </form>
 

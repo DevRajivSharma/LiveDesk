@@ -7,6 +7,7 @@ import Toolbar from '../components/Toolbar'
 import Cursors from '../components/Cursors'
 import Sidebar from '../components/Sidebar'
 import Loading from '../components/Loading'
+import { Code2, PenTool } from 'lucide-react'
 
 function Room() {
   const { roomId } = useParams()
@@ -107,14 +108,14 @@ function Room() {
     socket.on('user-kicked', ({ targetUserId }) => {
       if (targetUserId === currentUserRef.current?.id) {
         alert('You have been removed from the room by the host.');
-        navigate('/');
+        navigate('/home');
       }
     });
 
     // Listen for room termination
     socket.on('room-terminated', () => {
       alert('The session has been terminated by the host.');
-      navigate('/');
+      navigate('/home');
     });
 
     // Use a ref to prevent multiple joins in the same session
@@ -186,7 +187,7 @@ function Room() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-950 text-slate-200 overflow-hidden relative">
+    <div className="h-screen flex flex-col bg-[#0a0a0a] text-slate-200 overflow-hidden relative">
       {/* Real-time cursors */}
       <Cursors />
 
@@ -200,8 +201,8 @@ function Room() {
       />
 
       {/* Sidebar (Management & Admin) */}
-      <Sidebar 
-        isOpen={isSidebarOpen} 
+      <Sidebar
+        isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         roomId={roomId}
         settings={roomSettings}
@@ -209,7 +210,7 @@ function Room() {
       />
 
       {/* Main Content Area */}
-      <div 
+      <div
         ref={containerRef}
         className={`flex-1 flex overflow-hidden ${isResizing ? 'select-none' : ''}`}
       >
@@ -224,14 +225,17 @@ function Room() {
           {(viewMode === 'code' || viewMode === 'both') && (
             <div
               className="flex flex-col h-full overflow-hidden"
-              style={{ 
+              style={{
                 width: viewMode === 'both' ? `${splitPosition}%` : '100%',
                 display: viewMode === 'whiteboard' ? 'none' : 'flex'
               }}
             >
               {viewMode === 'both' && (
-                <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-300 uppercase tracking-tight">💻 Code Editor</span>
+                <div className="px-4 py-2 bg-[#111] border-b border-white/5 flex items-center justify-between">
+                  <span className="text-sm font-black text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <Code2 className="w-4 h-4 text-emerald-400" />
+                    Editor
+                  </span>
                 </div>
               )}
               <div className="flex-1 overflow-hidden">
@@ -250,10 +254,10 @@ function Room() {
             <div
               onMouseDown={handleResizeStart}
               className={`w-1 h-full z-[70] transition-colors cursor-col-resize flex items-center justify-center group ${
-                isResizing ? 'bg-slate-700' : 'bg-slate-800 hover:bg-slate-700'
+                isResizing ? 'bg-primary-500' : 'bg-white/5 hover:bg-white/10'
               }`}
             >
-              <div className="w-[1px] h-12 bg-slate-600 group-hover:bg-slate-400 rounded-full"></div>
+              <div className="w-[1px] h-12 bg-white/10 group-hover:bg-white/20 rounded-full"></div>
             </div>
           )}
 
@@ -261,19 +265,22 @@ function Room() {
           {(viewMode === 'whiteboard' || viewMode === 'both') && (
             <div
               className="flex flex-col h-full overflow-hidden"
-              style={{ 
+              style={{
                 width: viewMode === 'both' ? `${100 - splitPosition}%` : '100%',
                 display: viewMode === 'code' ? 'none' : 'flex'
               }}
             >
               {viewMode === 'both' && (
-                <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-600 uppercase tracking-tight">🎨 Whiteboard</span>
+                <div className="px-4 py-2 bg-[#111] border-b border-white/5 flex items-center justify-between">
+                  <span className="text-sm font-black text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <PenTool className="w-4 h-4 text-violet-400" />
+                    Whiteboard
+                  </span>
                 </div>
               )}
               <div className="flex-1 overflow-hidden relative">
-                <Whiteboard 
-                  roomId={roomId} 
+                <Whiteboard
+                  roomId={roomId}
                   isLocked={roomSettings.lockWhiteboard && roomSettings.adminId !== currentUser?.id}
                 />
               </div>

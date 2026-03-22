@@ -124,7 +124,7 @@ function Whiteboard({ roomId, isLocked }) {
   };
 
   return (
-    <div className={`h-full w-full excalidraw-wrapper bg-white ${isLocked ? 'pointer-events-none' : ''}`}>
+    <div className={`h-full w-full excalidraw-wrapper bg-[#0a0a0a] ${isLocked ? 'pointer-events-none' : ''}`}>
       {isLocked && (
         <div className="absolute top-4 right-4 z-[50] bg-red-500/90 text-white text-[10px] font-black px-2 py-1 rounded uppercase tracking-widest shadow-lg">
           Locked by Host
@@ -138,6 +138,7 @@ function Whiteboard({ roomId, isLocked }) {
           }}
           onChange={handleElementsChange}
           initialData={getInitialData()}
+          theme="dark"
         />
       ) : (
         <div className="flex items-center justify-center h-full">

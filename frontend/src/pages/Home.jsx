@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import RoomManager from '../components/RoomManager'
 import CodeEditor from '../components/CodeEditor'
 import Whiteboard from '../components/Whiteboard'
+import { Code2, PenTool, Split, LogOut, User, LayoutGrid } from 'lucide-react'
 
 function Home() {
   const navigate = useNavigate();
@@ -17,7 +18,7 @@ function Home() {
     localStorage.removeItem('livedesk-token');
     localStorage.removeItem('livedesk-user');
     localStorage.removeItem('livedesk-username');
-    navigate('/login');
+    navigate('/');
   };
 
   const handleResizeStart = (e) => {
@@ -58,22 +59,25 @@ function Home() {
           </div>
           <div className="h-6 w-[1px] bg-white/5 mx-2" />
           <div className="flex bg-black/40 rounded-xl p-1 border border-white/5">
-            <button 
+            <button
               onClick={() => setViewMode('code')}
-              className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${viewMode === 'code' ? 'bg-white text-black shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+              className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${viewMode === 'code' ? 'bg-white text-black shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              Code
+              <Code2 className="w-3 h-3" />
+              Editor
             </button>
-            <button 
+            <button
               onClick={() => setViewMode('whiteboard')}
-              className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${viewMode === 'whiteboard' ? 'bg-white text-black shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+              className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${viewMode === 'whiteboard' ? 'bg-white text-black shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              Board
+              <PenTool className="w-3 h-3" />
+              Whiteboard
             </button>
-            <button 
+            <button
               onClick={() => setViewMode('both')}
-              className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${viewMode === 'both' ? 'bg-white text-black shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+              className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${viewMode === 'both' ? 'bg-white text-black shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
             >
+              <Split className="w-3 h-3" />
               Split
             </button>
           </div>
@@ -92,13 +96,14 @@ function Home() {
               {user.username?.charAt(0).toUpperCase()}
             </div>
             <span className="text-xs font-black text-slate-400 uppercase tracking-wider">{user.username}</span>
+            <User className="w-4 h-4 text-slate-600" />
           </div>
-          <button 
+          <button
             onClick={handleLogout}
             className="p-2 text-slate-500 hover:text-red-400 transition-colors"
             title="Logout"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            <LogOut className="w-5 h-5" />
           </button>
         </div>
       </nav>
