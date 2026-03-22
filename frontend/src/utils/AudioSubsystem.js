@@ -90,20 +90,28 @@ export class AudioRouter {
   }
 
   async setLocalStream(stream) {
-    console.log('[AudioSubsystem] Setting local stream:', stream.id);
+    console.log(`[AudioSubsystem] Setting local stream: ${stream.id} (Tracks: ${stream.getAudioTracks().length})`);
     this.localStream = stream;
     // Update all existing PCs with new local stream tracks
     for (const [userId, peerData] of this.pcs) {
       const { pc } = peerData;
       const senders = pc.getSenders();
+      console.log(`[AudioSubsystem] Updating tracks for peer ${userId}. Current senders: ${senders.length}`);
+      
       stream.getTracks().forEach(track => {
-        const existingSender = senders.find(s => s.track?.kind === track.kind);
+        const existingSender = senders.find(s => s.track?.kind === track.kind || (s.track === null && s.dtlsTransport));
         if (existingSender) {
-          console.log(`[AudioSubsystem] Replacing track for peer: ${userId}`);
-          existingSender.replaceTrack(track);
+          console.log(`[AudioSubsystem] Replacing ${track.kind} track for peer: ${userId}`);
+          existingSender.replaceTrack(track).catch(err => {
+            console.error(`[AudioSubsystem] Failed to replace ${track.kind} track for ${userId}:`, err);
+          });
         } else {
-          console.log(`[AudioSubsystem] Adding track for peer: ${userId}`);
-          pc.addTrack(track, stream);
+          console.log(`[AudioSubsystem] Adding new ${track.kind} track for peer: ${userId}`);
+          try {
+            pc.addTrack(track, stream);
+          } catch (err) {
+            console.error(`[AudioSubsystem] Failed to add ${track.kind} track to ${userId}:`, err);
+          }
         }
       });
     }
@@ -197,7 +205,10 @@ export class AudioRouter {
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' }
-      ]
+      ],
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
     });
 
     pc.onicecandidate = ({ candidate }) => {
@@ -238,8 +249,22 @@ export class AudioRouter {
 
     pc.oniceconnectionstatechange = () => {
       console.log(`[AudioSubsystem] ICE connection state for ${targetUserId}: ${pc.iceConnectionState}`);
-      if (['disconnected', 'closed', 'failed'].includes(pc.iceConnectionState)) {
-        this.cleanupPeer(targetUserId);
+      if (pc.iceConnectionState === 'failed') {
+        console.warn(`[AudioSubsystem] Connection FAILED with ${targetUserId}, attempting ICE restart...`);
+        pc.restartIce();
+      } else if (pc.iceConnectionState === 'closed' || pc.iceConnectionState === 'disconnected') {
+        if (pc.iceConnectionState === 'disconnected') {
+          setTimeout(() => {
+            if (pc.iceConnectionState === 'disconnected') {
+              console.warn(`[AudioSubsystem] Peer ${targetUserId} remains disconnected. Reconnecting...`);
+              this.cleanupPeer(targetUserId);
+              this.initiateConnection(targetUserId);
+            }
+          }, 5000);
+        } else {
+          this.cleanupPeer(targetUserId);
+          this.initiateConnection(targetUserId);
+        }
       }
     };
 
@@ -247,7 +272,32 @@ export class AudioRouter {
       console.log(`[AudioSubsystem] Signaling state for ${targetUserId}: ${pc.signalingState}`);
     };
 
+    pc.onconnectionstatechange = () => {
+      console.log(`[AudioSubsystem] Connection state for ${targetUserId}: ${pc.connectionState}`);
+      if (pc.connectionState === 'failed') {
+        console.warn(`[AudioSubsystem] Full connection failure for ${targetUserId}. Restarting.`);
+        this.cleanupPeer(targetUserId);
+        // Delay a bit before initiating a fresh connection
+        setTimeout(() => this.initiateConnection(targetUserId), 2000);
+      }
+    };
+
     return pc;
+  }
+
+  async checkHealth() {
+    console.log('[AudioSubsystem] Periodic health check...');
+    for (const [userId, peerData] of this.pcs) {
+      const { pc } = peerData;
+      if (
+        ['failed', 'closed', 'disconnected'].includes(pc.connectionState) ||
+        ['failed', 'closed', 'disconnected'].includes(pc.iceConnectionState)
+      ) {
+        console.warn(`[AudioSubsystem] Unhealthy connection detected for ${userId}. Restarting...`);
+        this.cleanupPeer(userId);
+        this.initiateConnection(userId);
+      }
+    }
   }
 
   cleanupPeer(userId) {

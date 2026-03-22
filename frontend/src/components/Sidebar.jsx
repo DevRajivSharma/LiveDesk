@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useSocketContext } from '../contexts/SocketContext';
 import { AudioRouter, VADProcessor } from '../utils/AudioSubsystem';
-import { AudioTestSystem } from '../utils/AudioTestSystem';
+import toast from 'react-hot-toast';
 
 // ─── RemoteAudio Component ──────────────────────────────────────────────────
 // Each remote user's audio is rendered through this element
@@ -14,13 +14,42 @@ const RemoteAudio = memo(({ stream, userId, audioRouter }) => {
       audioRef.current.srcObject = stream;
       
       const playAudio = () => {
-        audioRef.current.play().catch(err => {
-          console.warn(`[AudioSubsystem] Autoplay blocked for ${userId}, waiting for interaction`, err);
-        });
+        if (audioRef.current.paused) {
+          audioRef.current.play().catch(err => {
+            console.warn(`[AudioSubsystem] Autoplay blocked for ${userId}, waiting for interaction`, err);
+          });
+        }
       };
 
       playAudio();
       audioRouter?.ensureAudioContext();
+
+      const handleTrackChange = () => {
+        console.log(`[AudioSubsystem] Remote track state changed for ${userId}`);
+        playAudio();
+      };
+      const handleInteraction = () => {
+        audioRouter?.ensureAudioContext();
+        playAudio();
+      };
+
+      stream.getTracks().forEach(t => {
+        t.onunmute = handleTrackChange;
+        t.onmute = handleTrackChange;
+        t.onended = handleTrackChange;
+      });
+      window.addEventListener('click', handleInteraction);
+      window.addEventListener('touchstart', handleInteraction);
+
+      return () => {
+        stream.getTracks().forEach(t => {
+          t.onunmute = null;
+          t.onmute = null;
+          t.onended = null;
+        });
+        window.removeEventListener('click', handleInteraction);
+        window.removeEventListener('touchstart', handleInteraction);
+      };
     }
   }, [stream, userId, audioRouter]);
 
@@ -45,76 +74,21 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({}); // userId -> MediaStream
   const [speakingUsers, setSpeakingUsers] = useState({}); // userId -> boolean
-  const [testResults, setTestResults] = useState(null);
 
   // Production-grade Refs
   const audioRouterRef = useRef(null);
   const vadsRef = useRef({}); // userId -> VADProcessor
-  const testSystemRef = useRef(null);
   const isMicLocked = settings?.lockMic && !isAdmin;
+  const isInitializingMicRef = useRef(false);
 
-  // ─── 1. Initialize Audio Subsystem ────────────────────────────────────────
-  useEffect(() => {
-    if (!audioRouterRef.current && socket) {
-      audioRouterRef.current = new AudioRouter(
-        socket,
-        roomId,
-        currentUser.id,
-        (userId, stream) => {
-          setRemoteStreams(prev => ({ ...prev, [userId]: stream }));
-          setupVAD(userId, stream);
-        },
-        (userId) => {
-          setRemoteStreams(prev => {
-            const updated = { ...prev };
-            delete updated[userId];
-            return updated;
-          });
-          teardownVAD(userId);
-        }
-      );
-      testSystemRef.current = new AudioTestSystem(audioRouterRef.current, socket, roomId);
-    }
+  // Track state in refs to avoid stale closures
+  const isMutedRef = useRef(isMuted);
+  const localStreamRef = useRef(localStream);
 
-    const initMic = async () => {
-      try {
-        console.log('[AudioSubsystem] Protocol: Initializing local microphone...');
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { 
-            echoCancellation: { ideal: true }, 
-            noiseSuppression: { ideal: true }, 
-            autoGainControl: { ideal: true },
-            sampleRate: { ideal: 48000 },
-            channelCount: { ideal: 1 },
-            latency: { ideal: 0.01 }
-          }
-        });
-        
-        console.log('[AudioSubsystem] Local microphone initialized successfully');
-        stream.getAudioTracks().forEach(t => t.enabled = false);
-        setLocalStream(stream);
-        audioRouterRef.current?.setLocalStream(stream);
-        setupVAD(currentUser.id, stream);
-      } catch (err) {
-        console.error('[AudioSubsystem] Critical Error: Mic access denied or failed:', err);
-        toast.error('Microphone access failed. Please check permissions.');
-      }
-    };
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
 
-    if (!localStream) initMic();
-
-    const handleInteraction = () => audioRouterRef.current?.ensureAudioContext();
-    window.addEventListener('click', handleInteraction);
-    window.addEventListener('touchstart', handleInteraction);
-
-    return () => {
-      window.removeEventListener('click', handleInteraction);
-      window.removeEventListener('touchstart', handleInteraction);
-      audioRouterRef.current?.dispose();
-    };
-  }, [socket, roomId, currentUser.id]);
-
-  // ─── 2. VAD & Signaling ───────────────────────────────────────────────────
+  // ─── 1. VAD & Signaling ───────────────────────────────────────────────────
   const setupVAD = useCallback((userId, stream) => {
     if (!audioRouterRef.current) return;
     
@@ -149,6 +123,97 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       return updated;
     });
   }, []);
+
+  // ─── 2. Initialize Audio Subsystem ────────────────────────────────────────
+  
+  const initMic = useCallback(async (force = false) => {
+    if (isInitializingMicRef.current) {
+      console.warn('[AudioSubsystem] Mic initialization already in progress...');
+      return localStreamRef.current;
+    }
+    if (localStreamRef.current && !force) return localStreamRef.current;
+    
+    isInitializingMicRef.current = true;
+    try {
+      console.log('[AudioSubsystem] Protocol: Initializing local microphone...');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { 
+          echoCancellation: { ideal: true }, 
+          noiseSuppression: { ideal: true }, 
+          autoGainControl: { ideal: true },
+          sampleRate: { ideal: 48000 },
+          channelCount: { ideal: 1 },
+          latency: { ideal: 0.01 }
+        }
+      });
+      
+      console.log('[AudioSubsystem] Local microphone initialized successfully');
+      // If we were muted before, keep it muted
+      stream.getAudioTracks().forEach(t => {
+        t.enabled = !isMutedRef.current;
+        console.log(`[AudioSubsystem] Initial track state for ${t.id}: ${t.enabled ? 'ENABLED' : 'MUTED'}`);
+      });
+      
+      setLocalStream(stream);
+      localStreamRef.current = stream; // Update ref immediately
+      audioRouterRef.current?.setLocalStream(stream);
+      setupVAD(currentUser.id, stream);
+
+      // Handle stream ending (e.g., unplugged mic)
+      stream.getAudioTracks()[0].onended = () => {
+        console.warn('[AudioSubsystem] Local mic track ended unexpectedly. Attempting recovery...');
+        setTimeout(() => initMic(true), 2000);
+      };
+
+      return stream;
+    } catch (err) {
+      console.error('[AudioSubsystem] Critical Error: Mic access denied or failed:', err);
+      toast.error('Microphone access failed. Please check permissions.');
+      return null;
+    } finally {
+      isInitializingMicRef.current = false;
+    }
+  }, [currentUser.id, setupVAD]);
+
+  useEffect(() => {
+    if (!audioRouterRef.current && socket) {
+      audioRouterRef.current = new AudioRouter(
+        socket,
+        roomId,
+        currentUser.id,
+        (userId, stream) => {
+          setRemoteStreams(prev => ({ ...prev, [userId]: stream }));
+          setupVAD(userId, stream);
+        },
+        (userId) => {
+          setRemoteStreams(prev => {
+            const updated = { ...prev };
+            delete updated[userId];
+            return updated;
+          });
+          teardownVAD(userId);
+        }
+      );
+    }
+
+    if (!localStreamRef.current) initMic();
+
+    const handleInteraction = () => audioRouterRef.current?.ensureAudioContext();
+    window.addEventListener('click', handleInteraction);
+    window.addEventListener('touchstart', handleInteraction);
+
+    // Periodic health check
+    const healthInterval = setInterval(() => {
+      audioRouterRef.current?.checkHealth();
+    }, 15000);
+
+    return () => {
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+      clearInterval(healthInterval);
+      audioRouterRef.current?.dispose();
+    };
+  }, [socket, roomId, currentUser.id, initMic, setupVAD, teardownVAD]);
 
   // ─── 3. Mesh Control & Signaling Handlers ────────────────────────────────
   useEffect(() => {
@@ -187,29 +252,74 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     };
   }, [socket, users, currentUser.id]);
 
-  // ─── 4. UI Actions ───────────────────────────────────────────────────────
-  const handleMuteToggle = () => {
-    if (isMicLocked) return;
-    const nextMuteState = !isMuted;
-    
-    if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !nextMuteState;
-        console.log(`[AudioSubsystem] Local mic track state changed: ${track.enabled ? 'ENABLED' : 'MUTED'}`);
+  useEffect(() => {
+    if (!audioRouterRef.current || !users?.length) return;
+    const ensureConnections = () => {
+      users.forEach(user => {
+        if (user.id !== currentUser.id) {
+          audioRouterRef.current?.initiateConnection(user.id);
+        }
       });
-    }
+    };
+    ensureConnections();
+    const reconnectInterval = setInterval(ensureConnections, 7000);
+    return () => clearInterval(reconnectInterval);
+  }, [users, currentUser.id]);
+
+  // ─── 4. UI Actions ───────────────────────────────────────────────────────
+  const handleMuteToggle = async () => {
+    if (isMicLocked) return;
+    const nextMuteState = !isMutedRef.current;
     
-    setIsMuted(nextMuteState);
-    audioRouterRef.current?.ensureAudioContext();
-    socket?.emit('mic-status-change', { roomId, userId: currentUser.id, isMuted: nextMuteState });
+    try {
+      let stream = localStreamRef.current;
+      if (!stream) {
+        console.warn('[AudioSubsystem] No local stream found during toggle. Re-initializing...');
+        stream = await initMic(true);
+      }
+
+      if (stream) {
+        const tracks = stream.getAudioTracks();
+        const hasLiveTrack = tracks.some(track => track.readyState === 'live');
+        if (!hasLiveTrack) {
+          console.warn('[AudioSubsystem] No live audio track found. Recreating microphone stream...');
+          stream = await initMic(true);
+        }
+
+        const activeStream = stream || localStreamRef.current;
+        if (!activeStream) {
+          toast.error('Failed to access microphone');
+          return;
+        }
+
+        activeStream.getAudioTracks().forEach(track => {
+          if (track.readyState !== 'live') {
+            console.warn(`[AudioSubsystem] Ignoring non-live track ${track.id} (${track.readyState})`);
+            return;
+          }
+          track.enabled = !nextMuteState;
+          console.log(`[AudioSubsystem] Local mic track ${track.id} state changed: ${track.enabled ? 'ENABLED' : 'MUTED'}`);
+        });
+
+        audioRouterRef.current?.ensureAudioContext();
+        audioRouterRef.current?.setLocalStream(activeStream);
+        isMutedRef.current = nextMuteState;
+        setIsMuted(nextMuteState);
+        socket?.emit('mic-status-change', { roomId, userId: currentUser.id, isMuted: nextMuteState });
+      }
+    } catch (err) {
+      console.error('[AudioSubsystem] Mute toggle failed:', err);
+      toast.error('Failed to toggle microphone');
+    }
   };
 
   useEffect(() => {
     if (isMicLocked && !isMuted) {
-      if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = false);
+      if (localStreamRef.current) localStreamRef.current.getAudioTracks().forEach(t => t.enabled = false);
+      isMutedRef.current = true;
       setIsMuted(true);
     }
-  }, [isMicLocked]);
+  }, [isMicLocked, isMuted]);
 
   const handleToggleSetting = (key) => {
     if (!isAdmin) return;
@@ -222,15 +332,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     if (!isAdmin) return;
     if (confirm('Are you sure you want to remove this user?')) {
       socket?.emit('admin-kick-user', { roomId, targetUserId: userId });
-    }
-  };
-
-  const runAudioTest = async () => {
-    if (testSystemRef.current) {
-      toast.loading('Running comprehensive audio test...', { id: 'audio-test' });
-      const results = await testSystemRef.current.runFullTest();
-      setTestResults(results);
-      toast.success('Audio test complete!', { id: 'audio-test' });
     }
   };
 
@@ -262,16 +363,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Room Control Center</p>
             </div>
             <div className="flex items-center gap-2">
-              <button 
-                onClick={runAudioTest}
-                className="p-2 hover:bg-blue-500/10 rounded-none transition-colors text-blue-400 border border-blue-500/20"
-                title="Run Audio System Test"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                  <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                </svg>
-              </button>
               <button
                 onClick={onClose}
                 className="p-2 hover:bg-white/5 rounded-none transition-colors text-slate-500 hover:text-white border border-transparent hover:border-white/10"
@@ -285,25 +376,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide bg-[#0a0a0a]">
-            {/* Audio Test Results */}
-            {testResults && (
-              <div className="bg-blue-500/5 border border-white/5 p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Audio Subsystem Health</h3>
-                  <button onClick={() => setTestResults(null)} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold">Clear</button>
-                </div>
-                <div className="space-y-2">
-                  {testResults.map((res, i) => (
-                    <div key={i} className="flex items-center justify-between bg-black/40 p-2 border border-white/5">
-                      <span className="text-[10px] text-slate-400 font-mono uppercase">{res.test}</span>
-                      <span className={`text-[10px] font-black ${res.status === 'PASS' ? 'text-green-500' : res.status === 'WARN' ? 'text-yellow-500' : 'text-red-500'}`}>
-                        {res.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             {/* Audio Section */}
             <section>
               <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Voice Communication</h3>
