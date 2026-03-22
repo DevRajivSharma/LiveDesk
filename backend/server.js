@@ -552,16 +552,25 @@ io.on('connection', (socket) => {
   /**
    * EVENT: webrtc-offer
    * WebRTC signaling - User A wants to call User B
-   *
-   * Future implementation for voice/video:
-   * 1. User A sends offer to signaling server
-   * 2. Server forwards to User B
-   * 3. User B responds with answer
-   * 4. Direct peer connection established
    */
   socket.on('webrtc-offer', ({ roomId, offer, targetUserId, fromUserId }) => {
     console.log(`[WebRTC] Offer from ${fromUserId} to ${targetUserId}`);
-    socket.to(roomId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
+    
+    // Find the socket ID for the target user
+    let targetSocketId = null;
+    for (const [sId, info] of userSockets.entries()) {
+      if (info.roomId === roomId && info.userId === targetUserId) {
+        targetSocketId = sId;
+        break;
+      }
+    }
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
+    } else {
+      // Fallback to broadcast if target socket not found (though targeted is preferred)
+      socket.to(roomId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
+    }
   });
 
   /**
@@ -570,7 +579,20 @@ io.on('connection', (socket) => {
    */
   socket.on('webrtc-answer', ({ roomId, answer, targetUserId, fromUserId }) => {
     console.log(`[WebRTC] Answer from ${fromUserId} to ${targetUserId}`);
-    socket.to(roomId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
+    
+    let targetSocketId = null;
+    for (const [sId, info] of userSockets.entries()) {
+      if (info.roomId === roomId && info.userId === targetUserId) {
+        targetSocketId = sId;
+        break;
+      }
+    }
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
+    } else {
+      socket.to(roomId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
+    }
   });
 
   /**
@@ -578,7 +600,19 @@ io.on('connection', (socket) => {
    * WebRTC ICE candidate exchange
    */
   socket.on('webrtc-ice-candidate', ({ roomId, candidate, targetUserId, fromUserId }) => {
-    socket.to(roomId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
+    let targetSocketId = null;
+    for (const [sId, info] of userSockets.entries()) {
+      if (info.roomId === roomId && info.userId === targetUserId) {
+        targetSocketId = sId;
+        break;
+      }
+    }
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
+    } else {
+      socket.to(roomId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
+    }
   });
 
   /**

@@ -185,27 +185,31 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     };
 
     // FIX Bug 1 & 3: When a new user joins, BOTH sides need a connection.
-    // We create a PC for them (which triggers onnegotiationneeded if we have tracks).
-    // The new user's client will also create a PC toward us when they receive our offer.
+    // We create a PC for them. If we have a stream, onnegotiationneeded will fire an offer.
+    // If we don't have a stream, we just wait for their offer.
     const handleUserJoined = (user) => {
       if (user.id === currentUser.id) return;
-      // FIX Bug 1: read from ref, not stale closure state
-      if (localStreamRef.current) {
-        console.log(`[WebRTC] New user ${user.id} joined, initiating PC (we have a stream)`);
-        createPeerConnection(user.id); // onnegotiationneeded fires offer automatically
-      }
+      console.log(`[WebRTC] New user ${user.id} joined, creating PC`);
+      createPeerConnection(user.id);
+    };
+
+    const handleUserLeft = ({ userId }) => {
+      console.log(`[WebRTC] User ${userId} left, cleaning up PC`);
+      cleanupPeer(userId);
     };
 
     socket.on('webrtc-offer', handleOffer);
     socket.on('webrtc-answer', handleAnswer);
     socket.on('webrtc-ice-candidate', handleIceCandidate);
     socket.on('user-joined', handleUserJoined);
+    socket.on('user-left', handleUserLeft);
 
     return () => {
       socket.off('webrtc-offer', handleOffer);
       socket.off('webrtc-answer', handleAnswer);
       socket.off('webrtc-ice-candidate', handleIceCandidate);
       socket.off('user-joined', handleUserJoined);
+      socket.off('user-left', handleUserLeft);
     };
   }, [socket, roomId, currentUser?.id, createPeerConnection, cleanupPeer]);
 
