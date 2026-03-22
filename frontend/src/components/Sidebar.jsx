@@ -3,33 +3,18 @@ import { useSocketContext } from '../contexts/SocketContext';
 
 function RemoteAudio({ stream, userId }) {
   const audioRef = useRef();
-  
+
   useEffect(() => {
     if (audioRef.current && stream) {
       console.log(`[WebRTC] Attaching remote stream from ${userId}`);
       audioRef.current.srcObject = stream;
-      
-      const playAudio = () => {
-        audioRef.current.play().catch(e => {
-          console.warn(`[WebRTC] Audio autoplay blocked for ${userId}. Retrying on user interaction.`, e);
-          // Standard browser policy: autoplay requires user interaction or mute
-          // Since this is a conference call, we want sound. The user clicking 'Unmute' or joining
-          // the room usually counts as interaction.
-        });
-      };
-      
-      playAudio();
+      audioRef.current.play().catch(e => {
+        console.warn(`[WebRTC] Audio autoplay blocked for ${userId}:`, e);
+      });
     }
   }, [stream, userId]);
 
-  return (
-    <audio 
-      ref={audioRef} 
-      autoPlay 
-      playsInline 
-      className="hidden" 
-    />
-  );
+  return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 }
 
 function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
@@ -43,57 +28,96 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
   }, [settings?.adminId, currentUser?.id, isAdmin]);
 
   const [isMuted, setIsMuted] = useState(true);
-  const localStreamRef = useRef(null);       // FIX: use ref so closures always see latest value
-  const [localStreamState, setLocalStreamState] = useState(null); // for UI reactivity
-  const pcRef = useRef({});
-  const transceiversRef = useRef({}); // userId -> RTCRtpTransceiver
-  const makingOfferRef = useRef({});
-  const ignoreOfferRef = useRef({});
+  const isMutedRef = useRef(true); // mirror for closures
+
+  // Always-current refs — no stale closure issues
+  const localStreamRef = useRef(null);
+  const [localStreamState, setLocalStreamState] = useState(null);
+
+  const pcRef = useRef({});                 // userId -> RTCPeerConnection
+  const transceiversRef = useRef({});       // userId -> RTCRtpTransceiver
+  const makingOfferRef = useRef({});        // userId -> bool
+  const ignoreOfferRef = useRef({});        // userId -> bool
+
   const [remoteStreams, setRemoteStreams] = useState({});
   const [speakingUsers, setSpeakingUsers] = useState({});
+
   const audioContextRef = useRef(null);
   const analysersRef = useRef({});
+  const speakingRafRef = useRef({});        // userId -> raf id
 
   const isMicLocked = settings?.lockMic && !isAdmin;
 
+  // Keep ref in sync with state so closures always read the right value
+  const syncMutedRef = (val) => {
+    isMutedRef.current = val;
+    setIsMuted(val);
+  };
+
   useEffect(() => {
-    if (isMicLocked && !isMuted) {
-      setIsMuted(true);
+    if (isMicLocked && !isMutedRef.current) {
+      handleMuteOff();
     }
-  }, [isMicLocked, isMuted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMicLocked]);
 
   // ─── Speaking detection ───────────────────────────────────────────────────
   const setupSpeakingDetection = useCallback((stream, userId) => {
-    if (!audioContextRef.current) {
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
-    const source = audioContextRef.current.createMediaStreamSource(stream);
-    const analyser = audioContextRef.current.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    analysersRef.current[userId] = analyser;
 
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
+    // Cancel any existing loop for this user
+    if (speakingRafRef.current[userId]) {
+      cancelAnimationFrame(speakingRafRef.current[userId]);
+      delete speakingRafRef.current[userId];
+    }
 
-    const checkVolume = () => {
-      if (!analysersRef.current[userId]) return;
-      analyser.getByteFrequencyData(dataArray);
-      let values = 0;
-      for (let i = 0; i < bufferLength; i++) values += dataArray[i];
-      const isSpeaking = values / bufferLength > 15;
-      setSpeakingUsers(prev => prev[userId] === isSpeaking ? prev : { ...prev, [userId]: isSpeaking });
-      if (analysersRef.current[userId]) requestAnimationFrame(checkVolume);
-    };
-    checkVolume();
+    try {
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      const analyser = audioContextRef.current.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      analysersRef.current[userId] = analyser;
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const checkVolume = () => {
+        if (!analysersRef.current[userId]) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+        const isSpeaking = sum / bufferLength > 15;
+        setSpeakingUsers(prev =>
+          prev[userId] === isSpeaking ? prev : { ...prev, [userId]: isSpeaking }
+        );
+        speakingRafRef.current[userId] = requestAnimationFrame(checkVolume);
+      };
+      speakingRafRef.current[userId] = requestAnimationFrame(checkVolume);
+    } catch (e) {
+      console.warn('[WebRTC] Speaking detection error:', e);
+    }
   }, []);
 
-  // ─── Peer connection factory ──────────────────────────────────────────────
+  const teardownSpeakingDetection = useCallback((userId) => {
+    if (speakingRafRef.current[userId]) {
+      cancelAnimationFrame(speakingRafRef.current[userId]);
+      delete speakingRafRef.current[userId];
+    }
+    delete analysersRef.current[userId];
+    setSpeakingUsers(prev => { const n = { ...prev }; delete n[userId]; return n; });
+  }, []);
+
+  // ─── Get or create peer connection ──────────────────────────────────────
+  // NOTE: We no longer touch localStreamRef inside createPeerConnection.
+  // Track insertion happens AFTER the PC is created, via insertLocalTrack().
   const createPeerConnection = useCallback((targetUserId) => {
     if (pcRef.current[targetUserId]) return pcRef.current[targetUserId];
+    if (!currentUser?.id) return null;
 
     const polite = currentUser.id > targetUserId;
-    console.log(`[WebRTC] Creating PC for ${targetUserId}. Polite: ${polite}`);
+    console.log(`[WebRTC] Creating PC for ${targetUserId} (polite=${polite})`);
 
     const pc = new RTCPeerConnection({
       iceServers: [
@@ -102,21 +126,12 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       ],
     });
 
-    // Add audio transceiver immediately to establish the track path
-    // We start with no track (null) if muted, or the real track if unmuted
-    const localTrack = localStreamRef.current?.getAudioTracks()[0] || null;
-    const transceiver = pc.addTransceiver('audio', {
-      direction: 'sendrecv',
-      streams: localStreamRef.current ? [localStreamRef.current] : []
-    });
-    
-    if (localTrack) {
-      transceiver.sender.replaceTrack(localTrack);
-    }
+    // Add a sendrecv audio transceiver — no track yet; we'll replaceTrack after mic is granted
+    const transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
     transceiversRef.current[targetUserId] = transceiver;
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
+      if (candidate && socket) {
         socket.emit('webrtc-ice-candidate', {
           roomId, candidate,
           targetUserId, fromUserId: currentUser.id,
@@ -126,11 +141,15 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
 
     pc.onnegotiationneeded = async () => {
       try {
+        if (makingOfferRef.current[targetUserId]) return;
         makingOfferRef.current[targetUserId] = true;
-        console.log(`[WebRTC] onnegotiationneeded → sending offer to ${targetUserId}`);
+        console.log(`[WebRTC] Negotiating with ${targetUserId}`);
         await pc.setLocalDescription();
-        socket.emit('webrtc-offer', {
-          roomId, offer: pc.localDescription, targetUserId, fromUserId: currentUser.id,
+        socket?.emit('webrtc-offer', {
+          roomId,
+          offer: pc.localDescription,
+          targetUserId,
+          fromUserId: currentUser.id,
         });
       } catch (err) {
         console.error(`[WebRTC] Negotiation error with ${targetUserId}:`, err);
@@ -139,88 +158,109 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       }
     };
 
-    pc.ontrack = (event) => {
-      console.log(`[WebRTC] Received track from ${targetUserId}`);
-      const stream = event.streams[0];
-      if (stream) {
-        setRemoteStreams(prev => ({ ...prev, [targetUserId]: stream }));
-        setupSpeakingDetection(stream, targetUserId);
-      }
+    pc.ontrack = ({ streams, track }) => {
+      console.log(`[WebRTC] Got ${track.kind} track from ${targetUserId}`);
+      const stream = streams[0];
+      if (!stream) return;
+      setRemoteStreams(prev => ({ ...prev, [targetUserId]: stream }));
+      setupSpeakingDetection(stream, targetUserId);
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`[WebRTC] ICE state with ${targetUserId}: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'failed') {
+      const state = pc.iceConnectionState;
+      console.log(`[WebRTC] ICE state with ${targetUserId}: ${state}`);
+      if (state === 'failed') {
+        console.log(`[WebRTC] Restarting ICE with ${targetUserId}`);
         pc.restartIce();
       }
     };
 
     pcRef.current[targetUserId] = pc;
     return pc;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, roomId, currentUser?.id, setupSpeakingDetection]);
 
+  // Push the current local track (or null) into one PC's transceiver
+  const insertLocalTrack = useCallback((targetUserId) => {
+    const transceiver = transceiversRef.current[targetUserId];
+    if (!transceiver) return;
+    const track = localStreamRef.current?.getAudioTracks()[0] ?? null;
+    console.log(`[WebRTC] insertLocalTrack → ${targetUserId}, track=${track?.id ?? 'null'}`);
+    transceiver.sender.replaceTrack(track).catch(e =>
+      console.warn(`[WebRTC] replaceTrack failed for ${targetUserId}:`, e)
+    );
+  }, []);
+
   const cleanupPeer = useCallback((userId) => {
-    if (pcRef.current[userId]) {
-      pcRef.current[userId].close();
-      delete pcRef.current[userId];
-    }
+    pcRef.current[userId]?.close();
+    delete pcRef.current[userId];
     delete transceiversRef.current[userId];
     delete makingOfferRef.current[userId];
     delete ignoreOfferRef.current[userId];
-    delete analysersRef.current[userId];
+    teardownSpeakingDetection(userId);
     setRemoteStreams(prev => { const n = { ...prev }; delete n[userId]; return n; });
-    setSpeakingUsers(prev => { const n = { ...prev }; delete n[userId]; return n; });
-  }, []);
+  }, [teardownSpeakingDetection]);
 
-  // ─── Proactive Mesh Management ───────────────────────────────────────────
+  // ─── Mesh management: create/destroy PCs as users join/leave ────────────
   useEffect(() => {
-    if (!currentUser?.id || !users) return;
-    
-    // Create PC for any user we don't have one for yet
+    if (!currentUser?.id || !users?.length) return;
+
     users.forEach(user => {
-      if (user.id !== currentUser.id && !pcRef.current[user.id]) {
-        console.log(`[WebRTC] Proactively creating mesh link to ${user.id}`);
-        createPeerConnection(user.id);
+      if (user.id === currentUser.id) return;
+      if (!pcRef.current[user.id]) {
+        const pc = createPeerConnection(user.id);
+        if (pc) {
+          // If we already have a live track, inject it immediately
+          insertLocalTrack(user.id);
+        }
       }
     });
 
-    // Cleanup PCs for users who are no longer in the room list
-    Object.keys(pcRef.current).forEach(userId => {
-      if (!users.find(u => u.id === userId)) {
-        console.log(`[WebRTC] Removing mesh link to departed user ${userId}`);
-        cleanupPeer(userId);
+    // Prune PCs for departed users
+    const activeIds = new Set(users.map(u => u.id));
+    Object.keys(pcRef.current).forEach(uid => {
+      if (!activeIds.has(uid)) {
+        console.log(`[WebRTC] Pruning PC for departed user ${uid}`);
+        cleanupPeer(uid);
       }
     });
-  }, [users, currentUser?.id, createPeerConnection, cleanupPeer]);
+  }, [users, currentUser?.id, createPeerConnection, insertLocalTrack, cleanupPeer]);
 
-  // ─── WebRTC signaling listeners ───────────────────────────────────────────
+  // ─── WebRTC signaling listeners ─────────────────────────────────────────
   useEffect(() => {
     if (!socket || !currentUser?.id) return;
 
     const handleOffer = async ({ offer, fromUserId, targetUserId }) => {
       if (targetUserId !== currentUser.id) return;
-      
-      const pc = createPeerConnection(fromUserId);
+
+      const pc = createPeerConnection(fromUserId) ?? pcRef.current[fromUserId];
+      if (!pc) return;
+
       const polite = currentUser.id > fromUserId;
-      
+      const offerCollision =
+        makingOfferRef.current[fromUserId] || pc.signalingState !== 'stable';
+
+      ignoreOfferRef.current[fromUserId] = !polite && offerCollision;
+      if (ignoreOfferRef.current[fromUserId]) {
+        console.log(`[WebRTC] Ignoring offer from ${fromUserId} (glare, impolite)`);
+        return;
+      }
+
       try {
-        const readyForOffer = !makingOfferRef.current[fromUserId] &&
-          (pc.signalingState === "stable" || ignoreOfferRef.current[fromUserId]);
-        
-        const offerCollision = !readyForOffer;
-        ignoreOfferRef.current[fromUserId] = !polite && offerCollision;
-
-        if (ignoreOfferRef.current[fromUserId]) {
-          console.log(`[WebRTC] Ignoring offer from ${fromUserId} (glare)`);
-          return;
-        }
-
         console.log(`[WebRTC] Handling offer from ${fromUserId}`);
-        await pc.setRemoteDescription(offer);
+        if (offerCollision && polite) {
+          await Promise.all([
+            pc.setLocalDescription({ type: 'rollback' }),
+            pc.setRemoteDescription(offer),
+          ]);
+        } else {
+          await pc.setRemoteDescription(offer);
+        }
         await pc.setLocalDescription();
         socket.emit('webrtc-answer', {
-          roomId, answer: pc.localDescription, targetUserId: fromUserId, fromUserId: currentUser.id,
+          roomId,
+          answer: pc.localDescription,
+          targetUserId: fromUserId,
+          fromUserId: currentUser.id,
         });
       } catch (err) {
         console.error(`[WebRTC] Error handling offer from ${fromUserId}:`, err);
@@ -231,9 +271,9 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       if (targetUserId !== currentUser.id) return;
       const pc = pcRef.current[fromUserId];
       if (!pc) return;
-      
       try {
         console.log(`[WebRTC] Handling answer from ${fromUserId}`);
+        if (pc.signalingState === 'stable') return; // already settled
         await pc.setRemoteDescription(answer);
       } catch (err) {
         console.error(`[WebRTC] Error handling answer from ${fromUserId}:`, err);
@@ -244,12 +284,11 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       if (targetUserId !== currentUser.id) return;
       const pc = pcRef.current[fromUserId];
       if (!pc) return;
-
       try {
         await pc.addIceCandidate(candidate);
       } catch (err) {
         if (!ignoreOfferRef.current[fromUserId]) {
-          console.error(`[WebRTC] Error adding ICE candidate from ${fromUserId}:`, err);
+          console.error(`[WebRTC] ICE candidate error from ${fromUserId}:`, err);
         }
       }
     };
@@ -269,101 +308,108 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       socket.off('webrtc-answer', handleAnswer);
       socket.off('webrtc-ice-candidate', handleIceCandidate);
       socket.off('user-left', handleUserLeft);
-      
-      // Stop all peer connections
-      Object.values(pcRef.current).forEach(pc => pc.close());
-      
-      // Stop local stream
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(t => t.stop());
-      }
-
-      // Close audio context
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
     };
   }, [socket, roomId, currentUser?.id, createPeerConnection, cleanupPeer]);
 
-  // ─── Mic on/off ───────────────────────────────────────────────────────────
-  const startAudio = useCallback(async () => {
+  // ─── Full cleanup on unmount ─────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      Object.values(pcRef.current).forEach(pc => pc.close());
+      pcRef.current = {};
+      transceiversRef.current = {};
+
+      localStreamRef.current?.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+
+      Object.keys(speakingRafRef.current).forEach(uid => {
+        cancelAnimationFrame(speakingRafRef.current[uid]);
+      });
+      speakingRafRef.current = {};
+
+      audioContextRef.current?.close().catch(() => {});
+    };
+  }, []);
+
+  // ─── Mic helpers ─────────────────────────────────────────────────────────
+  const handleMuteOn = useCallback(async () => {
+    console.log('[WebRTC] Requesting mic...');
     try {
-      console.log('[WebRTC] Requesting local audio track...');
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
 
       localStreamRef.current = stream;
       setLocalStreamState(stream);
       setupSpeakingDetection(stream, currentUser.id);
 
-      const track = stream.getAudioTracks()[0];
-      
-      // Update ALL transceivers with the new track
-      // replaceTrack is much more stable than addTrack/removeTrack
-      Object.keys(pcRef.current).forEach(targetUserId => {
-        const transceiver = transceiversRef.current[targetUserId];
-        if (transceiver) {
-          console.log(`[WebRTC] Attaching local track to PC with ${targetUserId}`);
-          transceiver.sender.replaceTrack(track);
-        }
-      });
+      // Push track into EVERY existing peer connection
+      Object.keys(pcRef.current).forEach(insertLocalTrack);
+
+      console.log('[WebRTC] Mic on, track distributed to', Object.keys(pcRef.current).length, 'peers');
     } catch (err) {
       console.error('[WebRTC] Mic access denied:', err);
-      setIsMuted(true);
+      syncMutedRef(true);
     }
-  }, [currentUser?.id, setupSpeakingDetection]);
+  }, [currentUser?.id, setupSpeakingDetection, insertLocalTrack]);
 
-  const stopAudio = useCallback(() => {
+  const handleMuteOff = useCallback(() => {
+    console.log('[WebRTC] Stopping mic...');
     if (localStreamRef.current) {
-      console.log('[WebRTC] Stopping local audio tracks...');
-      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current.getTracks().forEach(t => t.stop());
       localStreamRef.current = null;
       setLocalStreamState(null);
     }
-    
-    // Mute ALL transceivers by setting track to null
-    Object.keys(pcRef.current).forEach(targetUserId => {
-      const transceiver = transceiversRef.current[targetUserId];
+
+    // Null out the sender track in every PC (signals mute without destroying the transceiver)
+    Object.keys(pcRef.current).forEach(uid => {
+      const transceiver = transceiversRef.current[uid];
       if (transceiver) {
-        console.log(`[WebRTC] Muting track for PC with ${targetUserId}`);
-        transceiver.sender.replaceTrack(null);
+        transceiver.sender.replaceTrack(null).catch(e =>
+          console.warn(`[WebRTC] replaceTrack(null) failed for ${uid}:`, e)
+        );
       }
     });
 
-    delete analysersRef.current[currentUser?.id];
-    setSpeakingUsers(prev => ({ ...prev, [currentUser?.id]: false }));
-  }, [currentUser?.id]);
+    teardownSpeakingDetection(currentUser?.id);
+  }, [currentUser?.id, teardownSpeakingDetection]);
 
+  // Watch isMuted state and trigger mic on/off
   useEffect(() => {
     if (!isMuted) {
-      startAudio();
+      handleMuteOn();
     } else {
-      stopAudio();
+      handleMuteOff();
     }
-  }, [isMuted]); // intentionally omit startAudio/stopAudio to avoid restart loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMuted]);
 
   const handleMuteToggle = () => {
     if (isMicLocked) return;
-    const newMutedState = !isMuted;
-    setIsMuted(newMutedState);
-    socket.emit('mic-status-change', { roomId, userId: currentUser.id, isMuted: newMutedState });
+    const next = !isMutedRef.current;
+    syncMutedRef(next);
+    socket?.emit('mic-status-change', { roomId, userId: currentUser.id, isMuted: next });
   };
 
+  // ─── Admin helpers ───────────────────────────────────────────────────────
   const handleToggleSetting = (key) => {
     if (!isAdmin) return;
     const newSettings = { ...settings, [key]: !settings[key] };
     onSettingsChange(newSettings);
-    socket.emit('room-settings-update', { roomId, settings: newSettings });
+    socket?.emit('room-settings-update', { roomId, settings: newSettings });
   };
 
   const handleKickUser = (userId) => {
     if (!isAdmin) return;
     if (confirm('Are you sure you want to remove this user?')) {
-      socket.emit('admin-kick-user', { roomId, targetUserId: userId });
+      socket?.emit('admin-kick-user', { roomId, targetUserId: userId });
     }
   };
 
+  // ─── Render ──────────────────────────────────────────────────────────────
   return (
     <>
       {/* Hidden Audio Elements - Always in DOM */}
@@ -382,21 +428,28 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       )}
 
       {/* Sidebar Panel */}
-      <div className={`fixed top-0 right-0 h-full w-[350px] bg-[#0f0f0f] border-l border-white/5 z-[90] shadow-2xl transition-transform duration-500 ease-out transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div
+        className={`fixed top-0 right-0 h-full w-[350px] bg-[#0f0f0f] border-l border-white/5 z-[90] shadow-2xl transition-transform duration-500 ease-out transform ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="p-6 border-b border-white/5 flex items-center justify-between bg-[#141414]">
             <div>
               <h2 className="text-xl font-black text-white tracking-tight">Management</h2>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Room Control Center</p>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                Room Control Center
+              </p>
             </div>
             <button
               onClick={onClose}
               className="p-2 hover:bg-white/5 rounded-xl transition-colors text-slate-500 hover:text-white"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
           </div>
@@ -404,15 +457,23 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
           <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
             {/* Audio Section */}
             <section>
-              <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Voice Communication</h3>
+              <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">
+                Voice Communication
+              </h3>
               <div className="bg-[#1a1a1a] rounded-2xl p-4 border border-white/5 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isMuted ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        isMuted ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'
+                      }`}
+                    >
                       {isMuted ? '🔇' : '🎙️'}
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-white">{isMuted ? 'Microphone Off' : 'Microphone On'}</p>
+                      <p className="text-sm font-bold text-white">
+                        {isMuted ? 'Microphone Off' : 'Microphone On'}
+                      </p>
                       <p className="text-[10px] text-slate-500 font-medium">
                         {isMicLocked ? 'Muted by host' : 'Real-time Audio'}
                       </p>
@@ -421,9 +482,15 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                   <button
                     onClick={handleMuteToggle}
                     disabled={isMicLocked}
-                    className={`w-12 h-6 rounded-full transition-colors relative ${isMuted ? 'bg-slate-700' : 'bg-primary-600'} ${isMicLocked ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    className={`w-12 h-6 rounded-full transition-colors relative ${
+                      isMuted ? 'bg-slate-700' : 'bg-primary-600'
+                    } ${isMicLocked ? 'opacity-40 cursor-not-allowed' : ''}`}
                   >
-                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isMuted ? 'left-1' : 'left-7'}`} />
+                    <div
+                      className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                        isMuted ? 'left-1' : 'left-7'
+                      }`}
+                    />
                   </button>
                 </div>
               </div>
@@ -432,8 +499,14 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
             {/* Room Settings (Admin Only) */}
             <section className={isAdmin ? 'block' : 'opacity-50 pointer-events-none'}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">Room Controls</h3>
-                {isAdmin && <span className="text-[10px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded font-black uppercase">Admin Access</span>}
+                <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                  Room Controls
+                </h3>
+                {isAdmin && (
+                  <span className="text-[10px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded font-black uppercase">
+                    Admin Access
+                  </span>
+                )}
               </div>
               <div className="bg-[#1a1a1a] rounded-2xl p-2 border border-white/5 divide-y divide-white/5">
                 {[
@@ -448,9 +521,15 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                     </div>
                     <button
                       onClick={() => handleToggleSetting(key)}
-                      className={`w-12 h-6 rounded-full transition-colors relative ${settings?.[key] ? 'bg-primary-600' : 'bg-slate-700'}`}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${
+                        settings?.[key] ? 'bg-primary-600' : 'bg-slate-700'
+                      }`}
                     >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings?.[key] ? 'left-7' : 'left-1'}`} />
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                          settings?.[key] ? 'left-7' : 'left-1'
+                        }`}
+                      />
                     </button>
                   </div>
                 ))}
@@ -460,11 +539,15 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
             {/* Participants */}
             <section>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">Participants</h3>
-                <span className="bg-primary-600/20 text-primary-400 text-[10px] font-black px-2 py-0.5 rounded-full">{users.length}</span>
+                <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                  Participants
+                </h3>
+                <span className="bg-primary-600/20 text-primary-400 text-[10px] font-black px-2 py-0.5 rounded-full">
+                  {users.length}
+                </span>
               </div>
               <div className="space-y-2">
-                {users.map((user) => {
+                {users.map(user => {
                   const isYou = user.id === currentUser?.id;
                   const isHost = user.id === settings?.adminId;
                   const isUserSpeaking = speakingUsers[user.id];
@@ -482,23 +565,37 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                       <div className="flex items-center gap-3">
                         <div className="relative">
                           <div
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xs shadow-lg transition-all duration-300 ${isUserSpeaking ? 'scale-110 ring-2 ring-green-500/50' : ''}`}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xs shadow-lg transition-all duration-300 ${
+                              isUserSpeaking ? 'scale-110 ring-2 ring-green-500/50' : ''
+                            }`}
                             style={{ backgroundColor: user.color }}
                           >
                             {user.name?.charAt(0).toUpperCase()}
                           </div>
                           {isUserSpeaking && (
                             <span className="absolute -bottom-1 -right-1 flex h-4 w-4">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-4 w-4 bg-green-500 border-2 border-[#0f0f0f] flex items-center justify-center text-[8px]">🎙️</span>
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-4 w-4 bg-green-500 border-2 border-[#0f0f0f] flex items-center justify-center text-[8px]">
+                                🎙️
+                              </span>
                             </span>
                           )}
                         </div>
                         <div className="flex flex-col">
                           <div className="flex items-center gap-2">
-                            <span className={`text-sm font-black ${isYou ? 'text-primary-400' : 'text-slate-200'}`}>{user.name}</span>
-                            {isYou && <span className="text-[8px] bg-primary-500/20 text-primary-400 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter">You</span>}
-                            {isHost && <span className="text-[8px] bg-yellow-500/20 text-yellow-500 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter ring-1 ring-yellow-500/40">Host</span>}
+                            <span className={`text-sm font-black ${isYou ? 'text-primary-400' : 'text-slate-200'}`}>
+                              {user.name}
+                            </span>
+                            {isYou && (
+                              <span className="text-[8px] bg-primary-500/20 text-primary-400 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter">
+                                You
+                              </span>
+                            )}
+                            {isHost && (
+                              <span className="text-[8px] bg-yellow-500/20 text-yellow-500 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter ring-1 ring-yellow-500/40">
+                                Host
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             {isHost ? (
@@ -507,7 +604,9 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                                 Session Host
                               </span>
                             ) : (
-                              <span className="text-[8px] text-slate-500 font-black uppercase tracking-[0.15em]">Participant</span>
+                              <span className="text-[8px] text-slate-500 font-black uppercase tracking-[0.15em]">
+                                Participant
+                              </span>
                             )}
                           </div>
                         </div>
@@ -524,10 +623,11 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                             className="p-2 hover:bg-red-500/10 rounded-xl text-slate-600 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 active:scale-90"
                             title="Remove User"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                              <circle cx="12" cy="12" r="10"></circle>
-                              <line x1="15" y1="9" x2="9" y2="15"></line>
-                              <line x1="9" y1="9" x2="15" y2="15"></line>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                              fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="10" />
+                              <line x1="15" y1="9" x2="9" y2="15" />
+                              <line x1="9" y1="9" x2="15" y2="15" />
                             </svg>
                           </button>
                         )}
@@ -546,7 +646,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
                 const action = isAdmin ? 'terminate' : 'leave';
                 if (confirm(`Are you sure you want to ${action} the session?`)) {
                   if (isAdmin) {
-                    socket.emit('admin-terminate-room', { roomId });
+                    socket?.emit('admin-terminate-room', { roomId });
                   } else {
                     window.location.href = '/home';
                   }
