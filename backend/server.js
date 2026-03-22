@@ -529,6 +529,14 @@ io.on('connection', (socket) => {
   });
 
   /**
+   * EVENT: speaking-state-change
+   * Real-time VAD state broadcast
+   */
+  socket.on('speaking-state-change', ({ roomId, userId, isSpeaking }) => {
+    socket.to(roomId).emit('speaking-update', { userId, isSpeaking });
+  });
+
+  /**
    * EVENT: mouse-move
    * Broadcast user cursor position
    */
@@ -551,31 +559,45 @@ io.on('connection', (socket) => {
 
   /**
    * EVENT: webrtc-offer
+   * WebRTC signaling - User A wants to call User B
    */
   socket.on('webrtc-offer', ({ roomId, offer, targetUserId, fromUserId }) => {
-    const targetSocketId = [...userSockets.entries()].find(([sId, info]) => info.roomId === roomId && info.userId === targetUserId)?.[0];
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
+    console.log(`[WebRTC] Offer: ${fromUserId} -> ${targetUserId}`);
+    
+    // Direct lookup in userSockets is better
+    for (const [sId, info] of userSockets.entries()) {
+      if (info.userId === targetUserId && info.roomId === roomId) {
+        io.to(sId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
+        return;
+      }
     }
   });
 
   /**
    * EVENT: webrtc-answer
+   * WebRTC signaling - User B responds to offer
    */
   socket.on('webrtc-answer', ({ roomId, answer, targetUserId, fromUserId }) => {
-    const targetSocketId = [...userSockets.entries()].find(([sId, info]) => info.roomId === roomId && info.userId === targetUserId)?.[0];
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
+    console.log(`[WebRTC] Answer: ${fromUserId} -> ${targetUserId}`);
+    
+    for (const [sId, info] of userSockets.entries()) {
+      if (info.userId === targetUserId && info.roomId === roomId) {
+        io.to(sId).emit('webrtc-answer', { answer, fromUserId, targetUserId });
+        return;
+      }
     }
   });
 
   /**
    * EVENT: webrtc-ice-candidate
+   * WebRTC ICE candidate exchange
    */
   socket.on('webrtc-ice-candidate', ({ roomId, candidate, targetUserId, fromUserId }) => {
-    const targetSocketId = [...userSockets.entries()].find(([sId, info]) => info.roomId === roomId && info.userId === targetUserId)?.[0];
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
+    for (const [sId, info] of userSockets.entries()) {
+      if (info.userId === targetUserId && info.roomId === roomId) {
+        io.to(sId).emit('webrtc-ice-candidate', { candidate, fromUserId, targetUserId });
+        return;
+      }
     }
   });
 
