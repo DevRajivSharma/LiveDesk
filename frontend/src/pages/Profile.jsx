@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { User, Mail, Github, Twitter, Globe, MapPin, Briefcase, Code, Save, ChevronLeft, LogOut, ShieldCheck, Camera, Activity } from 'lucide-react';
+import Logo from '../components/Logo';
 
 function Profile() {
   const [user, setUser] = useState(null);
@@ -111,17 +112,14 @@ function Profile() {
       {/* 1. Top Navigation - Sharp Edges */}
       <nav className="flex items-center justify-between px-6 py-2 bg-[#0a0a0a] border-b border-white/10 z-50 h-14 sticky top-0">
         <div className="flex items-center gap-8">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-6">
             <button 
               onClick={() => navigate('/home')}
               className="p-2 hover:bg-white/5 transition-colors text-slate-400 hover:text-white"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <div className="flex flex-col">
-              <span className="text-lg font-black text-white tracking-tighter uppercase leading-none block">User Profile</span>
-              <span className="text-[8px] text-slate-500 font-black uppercase tracking-[0.2em] block mt-0.5">Professional Identity</span>
-            </div>
+            <Logo className="w-8 h-8" textClassName="text-lg" />
           </div>
         </div>
         

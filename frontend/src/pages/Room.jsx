@@ -14,6 +14,7 @@ import {
   Home as HomeIcon, Play, X, Trash2, ChevronDown, User, Share2, LayoutGrid
 } from 'lucide-react'
 import toast from 'react-hot-toast';
+import Logo from '../components/Logo';
 
 function Room() {
   const { roomId } = useParams()
@@ -294,17 +295,9 @@ function Room() {
       <Cursors />
 
       {/* 1. Top Navigation - Sharp Edges */}
-      <nav className="flex items-center justify-between px-6 py-2 bg-[#0a0a0a] border-b border-white/10 z-50 h-14">
+      <nav className="flex items-center justify-between px-6 py-2 bg-[#0a0a0a] border-b border-white/10 z-50 h-14 sticky top-0">
         <div className="flex items-center gap-8">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 flex items-center justify-center shadow-lg">
-              <span className="text-white font-black text-lg italic">R</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-lg font-black text-white tracking-tighter uppercase leading-none block">Room Session</span>
-              <span className="text-[8px] text-slate-500 font-black uppercase tracking-[0.2em] block mt-0.5">{roomId}</span>
-            </div>
-          </div>
+          <Logo className="w-8 h-8" textClassName="text-lg" />
         </div>
         
         <div className="flex items-center gap-6 h-full">
