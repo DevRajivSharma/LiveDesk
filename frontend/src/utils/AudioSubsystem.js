@@ -81,6 +81,8 @@ export class AudioRouter {
     this.onRemoteStream = onRemoteStream;
     this.onPeerLeft = onPeerLeft;
     this.pcs = new Map(); // targetUserId -> { pc, makingOffer, ignoreOffer }
+    this.pendingIceCandidates = new Map(); // targetUserId -> RTCIceCandidateInit[]
+    this.disconnectTimers = new Map(); // targetUserId -> timeoutId
     this.localStream = null;
     
     this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
@@ -139,6 +141,7 @@ export class AudioRouter {
 
       console.log(`[AudioSubsystem] Handling offer from ${fromUserId}`);
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await this.flushIceQueue(fromUserId);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
@@ -160,6 +163,7 @@ export class AudioRouter {
       try {
         console.log(`[AudioSubsystem] Handling answer from ${fromUserId}`);
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        await this.flushIceQueue(fromUserId);
       } catch (err) {
         console.error(`[AudioSubsystem] Answer handling error from ${fromUserId}:`, err);
       }
@@ -168,15 +172,46 @@ export class AudioRouter {
 
   async handleIce(fromUserId, candidate) {
     const peerData = this.pcs.get(fromUserId);
-    if (peerData) {
-      const { pc } = peerData;
+    if (!peerData) {
+      this.queueIceCandidate(fromUserId, candidate);
+      return;
+    }
+    const { pc } = peerData;
+    try {
+      if (!pc.remoteDescription) {
+        this.queueIceCandidate(fromUserId, candidate);
+        return;
+      }
+      console.log(`[AudioSubsystem] Handling ICE candidate from ${fromUserId}`);
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      if (!peerData.ignoreOffer) {
+        console.error(`[AudioSubsystem] ICE handling error from ${fromUserId}:`, err);
+      }
+      this.queueIceCandidate(fromUserId, candidate);
+    }
+  }
+
+  queueIceCandidate(userId, candidate) {
+    if (!candidate) return;
+    const queue = this.pendingIceCandidates.get(userId) || [];
+    queue.push(candidate);
+    this.pendingIceCandidates.set(userId, queue);
+    console.log(`[AudioSubsystem] Queued ICE candidate for ${userId}. Queue length: ${queue.length}`);
+  }
+
+  async flushIceQueue(userId) {
+    const queue = this.pendingIceCandidates.get(userId);
+    const peerData = this.pcs.get(userId);
+    if (!queue?.length || !peerData?.pc?.remoteDescription) return;
+    const { pc } = peerData;
+    console.log(`[AudioSubsystem] Flushing ${queue.length} queued ICE candidates for ${userId}`);
+    this.pendingIceCandidates.delete(userId);
+    for (const candidate of queue) {
       try {
-        console.log(`[AudioSubsystem] Handling ICE candidate from ${fromUserId}`);
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (err) {
-        if (!peerData.ignoreOffer) {
-          console.error(`[AudioSubsystem] ICE handling error from ${fromUserId}:`, err);
-        }
+        console.error(`[AudioSubsystem] Failed queued ICE candidate for ${userId}:`, err);
       }
     }
   }
@@ -252,18 +287,21 @@ export class AudioRouter {
       if (pc.iceConnectionState === 'failed') {
         console.warn(`[AudioSubsystem] Connection FAILED with ${targetUserId}, attempting ICE restart...`);
         pc.restartIce();
-      } else if (pc.iceConnectionState === 'closed' || pc.iceConnectionState === 'disconnected') {
-        if (pc.iceConnectionState === 'disconnected') {
-          setTimeout(() => {
-            if (pc.iceConnectionState === 'disconnected') {
-              console.warn(`[AudioSubsystem] Peer ${targetUserId} remains disconnected. Reconnecting...`);
-              this.cleanupPeer(targetUserId);
-              this.initiateConnection(targetUserId);
-            }
-          }, 5000);
-        } else {
-          this.cleanupPeer(targetUserId);
-          this.initiateConnection(targetUserId);
+      } else if (pc.iceConnectionState === 'disconnected') {
+        if (this.disconnectTimers.has(targetUserId)) clearTimeout(this.disconnectTimers.get(targetUserId));
+        const timerId = setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected') {
+            console.warn(`[AudioSubsystem] Peer ${targetUserId} still disconnected. Attempting ICE restart.`);
+            pc.restartIce();
+          }
+        }, 10000);
+        this.disconnectTimers.set(targetUserId, timerId);
+      } else if (pc.iceConnectionState === 'closed') {
+        this.cleanupPeer(targetUserId);
+      } else {
+        if (this.disconnectTimers.has(targetUserId)) {
+          clearTimeout(this.disconnectTimers.get(targetUserId));
+          this.disconnectTimers.delete(targetUserId);
         }
       }
     };
@@ -275,10 +313,8 @@ export class AudioRouter {
     pc.onconnectionstatechange = () => {
       console.log(`[AudioSubsystem] Connection state for ${targetUserId}: ${pc.connectionState}`);
       if (pc.connectionState === 'failed') {
-        console.warn(`[AudioSubsystem] Full connection failure for ${targetUserId}. Restarting.`);
-        this.cleanupPeer(targetUserId);
-        // Delay a bit before initiating a fresh connection
-        setTimeout(() => this.initiateConnection(targetUserId), 2000);
+        console.warn(`[AudioSubsystem] Full connection failure for ${targetUserId}. Restarting ICE.`);
+        pc.restartIce();
       }
     };
 
@@ -290,12 +326,15 @@ export class AudioRouter {
     for (const [userId, peerData] of this.pcs) {
       const { pc } = peerData;
       if (
-        ['failed', 'closed', 'disconnected'].includes(pc.connectionState) ||
-        ['failed', 'closed', 'disconnected'].includes(pc.iceConnectionState)
+        ['failed', 'closed'].includes(pc.connectionState) ||
+        ['failed', 'closed'].includes(pc.iceConnectionState)
       ) {
         console.warn(`[AudioSubsystem] Unhealthy connection detected for ${userId}. Restarting...`);
         this.cleanupPeer(userId);
         this.initiateConnection(userId);
+      } else if (pc.connectionState === 'disconnected' || pc.iceConnectionState === 'disconnected') {
+        console.warn(`[AudioSubsystem] Connection to ${userId} is disconnected. Triggering ICE restart.`);
+        pc.restartIce();
       }
     }
   }
@@ -307,6 +346,11 @@ export class AudioRouter {
       peerData.pc.close();
       this.pcs.delete(userId);
     }
+    if (this.disconnectTimers.has(userId)) {
+      clearTimeout(this.disconnectTimers.get(userId));
+      this.disconnectTimers.delete(userId);
+    }
+    this.pendingIceCandidates.delete(userId);
     this.onPeerLeft(userId);
   }
 
