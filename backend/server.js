@@ -20,7 +20,7 @@ import { promisify } from 'util';
 const execPromise = promisify(exec);
 
 const ALLOWED_ORIGINS = [
-  'https://livedesk-nine.vercel.app',
+  'https://livedesk-live.vercel.app',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
