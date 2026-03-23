@@ -119,7 +119,7 @@ function Landing() {
 
       {/* Navigation */}
       <nav className="sticky top-0 z-20 flex items-center justify-between px-6 lg:px-12 py-6 border-b border-white/5 bg-black/70 backdrop-blur-md ">
-      <div className='mr-10'>
+      <div className="mr-10">
         <Logo className="w-10 h-10" textClassName="text-xl" />
       </div>
 
