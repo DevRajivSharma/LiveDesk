@@ -15,7 +15,6 @@ export function SocketProvider({ children }) {
   const [error, setError] = useState(null)
   const [initialized, setInitialized] = useState(false)
 
-  // FIX Bug 5: expose roomSettings so adminId is never lost on reconnect
   const [roomSettings, setRoomSettings] = useState(null)
 
   const lastRoomIdRef = useRef(null)
@@ -54,7 +53,6 @@ export function SocketProvider({ children }) {
         setError(`Connection failed: ${err.message}. Make sure the server is running on port 3001.`)
       })
 
-      // FIX Bug 5: pull adminId + settings out of room-state and store them
       newSocket.on('room-state', (state) => {
         console.log('📦 Room state received:', state)
         setRoomState(state)
@@ -72,7 +70,6 @@ export function SocketProvider({ children }) {
           }))
         }
 
-        // FIX: merge adminId into settings so Sidebar.isAdmin works on first load and after rejoin
         setRoomSettings({
           ...(state.settings || {}),
           adminId: state.adminId
@@ -122,7 +119,6 @@ export function SocketProvider({ children }) {
         ))
       })
 
-      // FIX Bug 5: keep roomSettings in sync when admin changes them
       newSocket.on('room-settings-sync', (settings) => {
         setRoomSettings(prev => ({ ...prev, ...settings }))
       })

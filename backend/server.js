@@ -28,11 +28,9 @@ const ALLOWED_ORIGINS = [
 ];
 
 await connectRedis();
-// Configuration
 const app = express();
 const httpServer = createServer(app);
 
-// Socket.io CORS configuration - allow frontend origin
 const io = new Server(httpServer, {
   cors: {
     origin: ALLOWED_ORIGINS,
@@ -41,21 +39,14 @@ const io = new Server(httpServer, {
   }
 });
 
-// Middleware
 app.use(cors({
   origin: ALLOWED_ORIGINS,
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' })); // Increased limit for whiteboard data
 
-// Routes
 app.use('/api/auth', authRoutes);
 
-/**
- * FILE SYSTEM API
- */
-
-// Get all files for a user
 app.get('/api/files', verifyToken, async (req, res) => {
   try {
     const files = await File.find({ userId: req.userId }).sort({ createdAt: -1 });
@@ -66,23 +57,19 @@ app.get('/api/files', verifyToken, async (req, res) => {
   }
 });
 
-// Save/Upload a file
 app.post('/api/files', verifyToken, async (req, res) => {
   try {
     const { name, type, size, content, roomId, isSnapshot, isBoardSnapshot, isFullSnapshot } = req.body;
     
-    // Check if file with same name exists for this user in this room
     let file = await File.findOne({ userId: req.userId, name, roomId });
     
     if (file) {
-      // Update existing file
       file.content = content;
       file.size = size;
       file.type = type;
       file.timestamp = new Date();
       await file.save();
     } else {
-      // Create new file
       file = await File.create({
         userId: req.userId,
         name, type, size, content, roomId,
@@ -97,7 +84,6 @@ app.post('/api/files', verifyToken, async (req, res) => {
   }
 });
 
-// Delete a file
 app.delete('/api/files/:fileId', verifyToken, async (req, res) => {
   try {
     const file = await File.findOneAndDelete({ _id: req.params.fileId, userId: req.userId });
@@ -109,34 +95,19 @@ app.delete('/api/files/:fileId', verifyToken, async (req, res) => {
   }
 });
 
-// Environment variables
 const PORT = process.env.PORT || 3001;
 console.log('This is mongoose',process.env.MONGO_URI)
 const MONGO_URI = process.env.MONGO_URI ;
 const DB_NAME = process.env.DB_NAME ;
-// ============================================================================
-// DATABASE CONNECTIONz
-// ============================================================================
 
 mongoose.connect(`${MONGO_URI}/${DB_NAME}`)
   .then(() => console.log('✅ MongoDB connected successfully'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * Generate unique room ID
- * Format: xxxx-xxxx-xxxx
- */
 const generateRoomId = () => {
   return `${uuidv4().slice(0, 4)}-${uuidv4().slice(4, 8)}-${uuidv4().slice(8, 12)}`;
 };
 
-/**
- * Generate random user color
- */
 const getRandomColor = () => {
   const colors = [
     '#ef4444', '#f97316', '#eab308', '#22c55e',
@@ -145,14 +116,6 @@ const getRandomColor = () => {
   return colors[Math.floor(Math.random() * colors.length)];
 };
 
-// ============================================================================
-// REST API ROUTES
-// ============================================================================
-
-/**
- * GET /api/room/:roomId
- * Fetch room data for persistence
- */
 app.get('/api/room/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -169,10 +132,6 @@ app.get('/api/room/:roomId', async (req, res) => {
   }
 });
 
-/**
- * POST /api/room
- * Create a new room
- */
 app.post('/api/room', async (req, res) => {
   try {
     const roomId = generateRoomId();
@@ -184,10 +143,6 @@ app.post('/api/room', async (req, res) => {
   }
 });
 
-/**
- * DELETE /api/room/:roomId
- * Delete a room (cleanup)
- */
 app.delete('/api/room/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -199,10 +154,6 @@ app.delete('/api/room/:roomId', async (req, res) => {
   }
 });
 
-/**
- * POST /api/execute
- * Execute code
- */
 app.post('/api/execute', async (req, res) => {
   try {
     const { code, language, roomId } = req.body;
@@ -212,7 +163,6 @@ app.post('/api/execute', async (req, res) => {
       return res.status(400).json({ error: 'No code provided' });
     }
 
-    // Supported languages and their execution commands
     const configs = {
       javascript: { ext: 'js', command: 'node' },
       python: { ext: 'py', command: 'python' },
@@ -221,14 +171,12 @@ app.post('/api/execute', async (req, res) => {
     const config = configs[language];
 
     if (!config) {
-      // Fallback for unsupported languages
       return res.json({
         output: `Execution for ${language} is not yet fully implemented on the server. Coming soon!`,
         exitCode: 0
       });
     }
 
-    // Create a temporary file
     const tempDir = path.join(process.cwd(), 'temp_exec');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir);
@@ -240,13 +188,11 @@ app.post('/api/execute', async (req, res) => {
     fs.writeFileSync(filePath, code);
 
     try {
-      // Execute with a timeout of 5 seconds
       const { stdout, stderr } = await execPromise(`${config.command} ${filePath}`, {
         timeout: 5000,
         maxBuffer: 1024 * 1024 // 1MB
       });
 
-      // Cleanup
       fs.unlinkSync(filePath);
 
       res.json({
@@ -255,7 +201,6 @@ app.post('/api/execute', async (req, res) => {
         executionTime: 'N/A'
       });
     } catch (error) {
-      // Cleanup on error too
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
       res.json({
@@ -271,29 +216,16 @@ app.post('/api/execute', async (req, res) => {
   }
 });
 
-// ============================================================================
-// SOCKET.IO REAL-TIME HANDLERS
-// ============================================================================
-
-// Store active socket connections
 const userSockets = new Map(); // socketId -> { roomId, userId, userName }
 
-/**
- * Socket connection handler
- */
 io.on('connection', (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
 
-  /**
-   * EVENT: join-room
-   * User joins a collaborative room
-   */
+  
   socket.on('join-room', async ({ roomId, userName, userId: providedUserId }) => {
     try {
-      // Find or create room in database
       let room = await Room.findOne({ roomId });
       
-      // Use provided ID or generate one
       const userId = providedUserId || uuidv4();
       const userColor = getRandomColor();
       const user = { 
@@ -304,7 +236,6 @@ io.on('connection', (socket) => {
         joinedAt: new Date() 
       };
 
-      // Create room if it doesn't exist or assign admin if missing
       if (!room) {
         room = new Room({ 
           roomId, 
@@ -314,34 +245,28 @@ io.on('connection', (socket) => {
           adminId: userId // The person creating the room is the admin
         });
       } else if (!room.adminId) {
-        // If room exists but has no admin, this user becomes admin
         room.adminId = userId;
       }
 
       await room.save();
 
-      // Check if user is already in the users list for this room (prevents duplication)
       const userExists = room.users.some(u => u.id === userId);
       
       if (!userExists) {
-        // Add user to room (in-memory + DB)
         room.users.push(user);
         await room.save();
 
-        // Notify others in room ONLY if this is a new unique user
         socket.to(roomId).emit('user-joined', user);
         console.log(`👤 New user ${user.name} joined room ${roomId}`);
       } else {
         console.log(`👤 User ${user.name} reconnected to room ${roomId}`);
       }
 
-      // Check if this socket is already in a room and clean up
       const existingSocketInfo = userSockets.get(socket.id);
       if (existingSocketInfo) {
         if (existingSocketInfo.roomId === roomId) {
           console.log(`👤 Socket ${socket.id} already recorded in room ${roomId}`);
         } else {
-          // If in a different room, clean up that one
           await Room.findOneAndUpdate(
             { roomId: existingSocketInfo.roomId },
             { $pull: { users: { id: existingSocketInfo.userId } } }
@@ -351,11 +276,9 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Join socket room
       socket.join(roomId);
       userSockets.set(socket.id, { roomId, userId, userName: user.name, color: userColor });
 
-      // Send current room state to new user
       socket.emit('room-state', {
         code: room.code,
         language: room.language,
@@ -373,22 +296,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: code-change
-   * Monaco editor text changed
-   * Real-time broadcast to other users in room
-   */
+  
   socket.on('code-change', async ({ roomId, code, language }) => {
     try {
-      // Update in-memory socket state
       const userInfo = userSockets.get(socket.id);
       if (!userInfo) return;
 
-      // Broadcast to others in the room (exclude sender)
       socket.to(roomId).emit('code-update', { code, language, userId: userInfo.userId });
 
-      // Debounced save to database (save every 2 seconds if changes occur)
-      // In production, use a proper debounce/throttle mechanism
       await Room.findOneAndUpdate(
         { roomId },
         { code, language, updatedAt: new Date() },
@@ -399,11 +314,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: code-complete
-   * Code change is complete (cursor moved, etc.)
-   * More aggressive save to DB
-   */
+  
   socket.on('code-complete', async ({ roomId, code, language }) => {
     try {
       await Room.findOneAndUpdate(
@@ -415,13 +326,9 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Throttled DB save for whiteboard to keep UI responsive
   const whiteboardSaveTimers = new Map(); // roomId -> timer
 
-  /**
-   * EVENT: room-settings-update
-   * Admin updated room settings (lock editor, etc.)
-   */
+  
   socket.on('room-settings-update', async ({ roomId, settings }) => {
     try {
       await Room.findOneAndUpdate({ roomId }, { settings });
@@ -431,18 +338,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: admin-kick-user
-   * Admin removed a user from the room
-   */
+  
   socket.on('admin-kick-user', ({ roomId, targetUserId }) => {
     io.to(roomId).emit('user-kicked', { targetUserId });
   });
 
-  /**
-   * EVENT: admin-terminate-room
-   * Admin deleted the entire room
-   */
+  
   socket.on('admin-terminate-room', async ({ roomId }) => {
     try {
       await Room.findOneAndDelete({ roomId });
@@ -452,20 +353,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: whiteboard-update
-   * Excalidraw canvas elements changed
-   * Real-time broadcast to other users
-   */
+  
   socket.on('whiteboard-update', async ({ roomId, whiteboardData }) => {
     try {
-      // Parse data if it's a string to ensure consistency
       const parsedData = typeof whiteboardData === 'string' ? JSON.parse(whiteboardData) : whiteboardData;
 
-      // 1. BROADCAST IMMEDIATELY (Use consistent object format)
       socket.to(roomId).emit('whiteboard-sync', { whiteboardData: parsedData });
 
-      // 2. THROTTLED DB SAVE
       if (!whiteboardSaveTimers.has(roomId)) {
         const timer = setTimeout(async () => {
           try {
@@ -488,10 +382,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: language-change
-   * User changed the programming language
-   */
+  
   socket.on('language-change', async ({ roomId, language }) => {
     try {
       await Room.findOneAndUpdate(
@@ -505,41 +396,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: mic-status-change
-   * User toggled their microphone
-   */
+  
   socket.on('mic-status-change', async ({ roomId, userId, isMuted }) => {
     try {
-      // Update in-memory user list if necessary
       const userInfo = userSockets.get(socket.id);
       if (userInfo) userInfo.isMuted = isMuted;
 
-      // Update database
       await Room.findOneAndUpdate(
         { roomId, 'users.id': userId },
         { $set: { 'users.$.isMuted': isMuted } }
       );
 
-      // Broadcast to others
       socket.to(roomId).emit('mic-status-update', { userId, isMuted });
     } catch (error) {
       console.error('Error syncing mic status:', error);
     }
   });
 
-  /**
-   * EVENT: speaking-state-change
-   * Real-time VAD state broadcast
-   */
+  
   socket.on('speaking-state-change', ({ roomId, userId, isSpeaking }) => {
     socket.to(roomId).emit('speaking-update', { userId, isSpeaking });
   });
 
-  /**
-   * EVENT: mouse-move
-   * Broadcast user cursor position
-   */
+  
   socket.on('mouse-move', ({ roomId, x, y }) => {
     const userInfo = userSockets.get(socket.id);
     if (userInfo) {
@@ -553,18 +432,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ========================================================================
-  // FUTURE SCOPE: WEBRTC VOICE/VIDEO SIGNALING
-  // ========================================================================
-
-  /**
-   * EVENT: webrtc-offer
-   * WebRTC signaling - User A wants to call User B
-   */
+  
   socket.on('webrtc-offer', ({ roomId, offer, targetUserId, fromUserId }) => {
     console.log(`[WebRTC] Offer: ${fromUserId} -> ${targetUserId}`);
     
-    // Direct lookup in userSockets is better
     for (const [sId, info] of userSockets.entries()) {
       if (info.userId === targetUserId && info.roomId === roomId) {
         io.to(sId).emit('webrtc-offer', { offer, fromUserId, targetUserId });
@@ -573,10 +444,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: webrtc-answer
-   * WebRTC signaling - User B responds to offer
-   */
+  
   socket.on('webrtc-answer', ({ roomId, answer, targetUserId, fromUserId }) => {
     console.log(`[WebRTC] Answer: ${fromUserId} -> ${targetUserId}`);
     
@@ -588,10 +456,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: webrtc-ice-candidate
-   * WebRTC ICE candidate exchange
-   */
+  
   socket.on('webrtc-ice-candidate', ({ roomId, candidate, targetUserId, fromUserId }) => {
     for (const [sId, info] of userSockets.entries()) {
       if (info.userId === targetUserId && info.roomId === roomId) {
@@ -601,10 +466,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: webrtc-join-call / webrtc-leave-call
-   * Notify others when user starts/stops video call
-   */
+  
   socket.on('webrtc-join-call', ({ roomId }) => {
     const userInfo = userSockets.get(socket.id);
     if (userInfo) {
@@ -624,14 +486,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ========================================================================
-  // DISCONNECTION HANDLER
-  // ========================================================================
-
-  /**
-   * EVENT: disconnect
-   * User leaves the application
-   */
+  
   socket.on('disconnect', async () => {
     try {
       const userInfo = userSockets.get(socket.id);
@@ -639,22 +494,18 @@ io.on('connection', (socket) => {
       if (userInfo) {
         const { roomId, userId, userName } = userInfo;
 
-        // Check if this user has other active sockets in the same room
         const hasOtherSockets = Array.from(userSockets.entries()).some(
           ([sId, info]) => sId !== socket.id && info.roomId === roomId && info.userId === userId
         );
 
         if (!hasOtherSockets) {
-          // Remove user from room in database ONLY if no other tabs are open
           await Room.findOneAndUpdate(
             { roomId },
             { $pull: { users: { id: userId } } }
           );
-          // Notify others in room
           socket.to(roomId).emit('user-left', { userId, userName });
         }
 
-        // Leave socket room
         socket.leave(roomId);
         userSockets.delete(socket.id);
 
@@ -665,10 +516,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  /**
-   * EVENT: leave-room
-   * User explicitly leaves a room
-   */
+  
   socket.on('leave-room', async ({ roomId }) => {
     try {
       const userInfo = userSockets.get(socket.id);
@@ -692,10 +540,6 @@ io.on('connection', (socket) => {
     }
   });
 });
-
-// ============================================================================
-// START SERVER
-// ============================================================================
 
 httpServer.listen(PORT,'0.0.0.0', () => {
   

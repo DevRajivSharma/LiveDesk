@@ -21,17 +21,14 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
   const { emitCodeChange, emitCodeComplete, emitLanguageChange, currentUser } = useSocketContext()
   const { code, language: syncedLanguage } = useCodeSync(roomId)
   const user = JSON.parse(localStorage.getItem('livedesk-user') || '{}');
-  // Use external language if provided, otherwise use synced
   const currentLanguage = externalLanguage || syncedLanguage || 'javascript'
   const editorRef = useRef(null)
   const isLocalChange = useRef(false)
   const debounceTimer = useRef(null)
 
-  // Handle editor mount
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor
 
-    // Configure editor settings
     editor.updateOptions({
       minimap: { enabled: true },
       fontSize: 14,
@@ -45,28 +42,23 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
     })
   }
 
-  // Update readOnly status when isLocked changes
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.updateOptions({ readOnly: isLocked })
     }
   }, [isLocked])
 
-  // Handle code change with debounce
   const handleCodeChange = useCallback((value) => {
-    // If value is empty string, we still want to save it (cleared state)
     if (value === undefined || !roomId) return
 
     isLocalChange.current = true
     onCodeChange?.(value)
 
-    // Personal workspace logic
     if (roomId === 'personal') {
       localStorage.setItem('livedesk-personal-code', value)
       return
     }
 
-    // Collaborative logic
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current)
     }
@@ -75,20 +67,17 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
       emitCodeChange(roomId, value, currentLanguage)
     }, 150)
 
-    // Clear debounce after emit
     setTimeout(() => {
       isLocalChange.current = false
     }, 200)
   }, [roomId, currentLanguage, emitCodeChange, onCodeChange])
 
-  // Handle code change complete (for DB save)
   const handleEditorChange = useCallback((value) => {
     if (!value || !roomId) return
 
     handleCodeChange(value)
   }, [roomId, handleCodeChange])
 
-  // Handle language change
   const handleLanguageChange = (e) => {
     const newLanguage = e.target.value
     onLanguageChange?.(newLanguage)
@@ -100,7 +89,6 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
     }
   }
 
-  // Initialize code from room state if available
   useEffect(() => {
     if (code && editorRef.current && !isLocalChange.current) {
       const currentValue = editorRef.current.getValue()
@@ -110,7 +98,6 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
     }
   }, [code])
 
-  // Handle manual code loads (e.g., from snippets or files)
   useEffect(() => {
     const handleManualLoad = (e) => {
       const { code: newCode, language: newLang } = e.detail;
@@ -119,7 +106,6 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
         if (newLang) {
           onLanguageChange?.(newLang);
         }
-        // Force update local state
         onCodeChange?.(newCode);
         
         if (roomId === 'personal') {
@@ -137,7 +123,7 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a]">
-      {/* Editor Header with Language Selector and Run Button */}
+      
       <div className="flex items-center justify-between px-6 py-2 bg-[#0a0a0a] border-b border-white/10">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-blue-400">
@@ -161,7 +147,7 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
           </div>
         </div>
 
-        {/* Integrated Run Button */}
+        
         {onRun && (
           <button 
             onClick={onRun}
@@ -174,7 +160,7 @@ function CodeEditor({ roomId, onLanguageChange, onCodeChange, externalLanguage, 
         )}
       </div>
 
-      {/* Monaco Editor */}
+      
       <div className="flex-1 monaco-editor-container">
         <Editor
           height="100%"

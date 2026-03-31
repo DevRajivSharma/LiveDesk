@@ -1,6 +1,4 @@
-/**
- * VADProcessor: Voice Activity Detection for real-time audio analysis.
- */
+
 export class VADProcessor {
   constructor(audioContext, stream, onSpeakingChange) {
     this.audioContext = audioContext;
@@ -64,9 +62,6 @@ export class VADProcessor {
   }
 }
 
-/**
- * AudioRouter: Manages the full-mesh WebRTC topology and AudioContext lifecycle.
- */
 export class AudioRouter {
   constructor(
     socket,
@@ -94,7 +89,6 @@ export class AudioRouter {
   async setLocalStream(stream) {
     console.log(`[AudioSubsystem] Setting local stream: ${stream.id} (Tracks: ${stream.getAudioTracks().length})`);
     this.localStream = stream;
-    // Update all existing PCs with new local stream tracks
     for (const [userId, peerData] of this.pcs) {
       const { pc } = peerData;
       const senders = pc.getSenders();

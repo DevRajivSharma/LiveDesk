@@ -8,7 +8,6 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
   const [showCopyMenu, setShowCopyMenu] = useState(false)
   const { users } = useSocketContext()
 
-  // Copy room info
   const handleCopy = useCallback((type) => {
     let text = roomId;
     let message = 'Room ID copied!';
@@ -21,11 +20,9 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
     navigator.clipboard.writeText(text);
     setShowCopyMenu(false);
     
-    // Custom toast-like alert would be better, but for now:
     alert(message);
   }, [roomId])
 
-  // Leave room
   const handleLeave = useCallback(() => {
     if (confirm('Are you sure you want to leave this room?')) {
       window.location.href = '/home'
@@ -34,7 +31,7 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
 
   return (
     <div className="flex items-center justify-between px-4 py-2 bg-[#111] border-b border-white/5">
-      {/* Left: View Toggle & Menu */}
+      
       <div className="flex items-center gap-4">
         <button 
           onClick={onOpenMenu}
@@ -81,7 +78,7 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
         </div>
       </div>
 
-      {/* Center: Room Info */}
+      
       <div className="flex items-center gap-4">
         <div className="flex items-center bg-black/40 border border-white/5 rounded-xl px-3 py-1.5 group relative">
           <div className="flex flex-col items-end pr-3 border-r border-white/5">
@@ -97,7 +94,7 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
             <Share2 className="w-4 h-4" />
           </button>
 
-          {/* Copy Dropdown */}
+          
           {showCopyMenu && (
             <>
               <div
@@ -135,9 +132,9 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
         </div>
       </div>
 
-      {/* Right: Actions */}
+      
       <div className="flex items-center gap-2">
-        {/* Run Code Button (Opens Terminal in Drawer) */}
+        
         <button
           onClick={onOpenMenu}
           disabled={currentView === 'whiteboard'}
@@ -147,7 +144,7 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
           Terminal
         </button>
 
-        {/* Management Sidebar Toggle */}
+        
         <button
           onClick={onOpenSidebar}
           className="relative flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#222] text-slate-200 text-sm font-bold rounded-xl transition-all border border-white/5 active:scale-95 group shadow-lg"
@@ -161,7 +158,7 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
           </span>
         </button>
 
-        {/* Leave Room */}
+        
         <button
           onClick={handleLeave}
           className="px-4 py-1.5 text-red-400 hover:bg-red-900/20 text-sm font-bold rounded-lg transition-all flex items-center gap-2"
@@ -171,7 +168,7 @@ function Toolbar({ roomId, onViewChange, currentView, language, onOpenSidebar, o
         </button>
       </div>
 
-      {/* Online Users Modal */}
+      
       <UserModal 
         isOpen={isUserModalOpen} 
         onClose={() => setIsUserModalOpen(false)} 

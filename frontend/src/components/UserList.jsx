@@ -5,7 +5,7 @@ function UserList() {
 
   return (
     <div className="flex flex-col bg-white border-l border-slate-200 w-64">
-      {/* Header */}
+      
       <div className="px-4 py-3 border-b border-slate-200">
         <h3 className="font-semibold text-slate-800 flex items-center gap-2">
           👥 Users
@@ -15,7 +15,7 @@ function UserList() {
         </h3>
       </div>
 
-      {/* User List */}
+      
       <div className="flex-1 overflow-y-auto p-2">
         {users.map((user) => {
           const isCurrentUser = user.id === currentUser?.id
@@ -27,7 +27,7 @@ function UserList() {
                 isCurrentUser ? 'bg-primary-50' : 'hover:bg-slate-50'
               }`}
             >
-              {/* Avatar */}
+              
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
                 style={{ backgroundColor: user.color || '#6366f1' }}
@@ -35,7 +35,7 @@ function UserList() {
                 {(user.name || 'A').charAt(0).toUpperCase()}
               </div>
 
-              {/* Info */}
+              
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1">
                   <span className="text-sm font-medium text-slate-800 truncate">
@@ -50,7 +50,7 @@ function UserList() {
                 </span>
               </div>
 
-              {/* Online Indicator */}
+              
               <div className="w-2 h-2 bg-green-500 rounded-full" title="Online" />
             </div>
           )
@@ -63,7 +63,7 @@ function UserList() {
         )}
       </div>
 
-      {/* Connection Status */}
+      
       <div className="px-4 py-3 border-t border-slate-200">
         <div className="flex items-center gap-2">
           <div

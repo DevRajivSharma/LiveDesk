@@ -3,8 +3,6 @@ import { useSocketContext } from '../contexts/SocketContext';
 import { AudioRouter, VADProcessor } from '../utils/AudioSubsystem';
 import toast from 'react-hot-toast';
 
-// ─── RemoteAudio Component ──────────────────────────────────────────────────
-// Each remote user's audio is rendered through this element
 const RemoteAudio = memo(({ stream, userId, audioRouter }) => {
   const audioRef = useRef(null);
 
@@ -69,30 +67,25 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
 
   const isAdmin = settings?.adminId === currentUser?.id;
 
-  // ─── Voice State ──────────────────────────────────────────────────────────
   const [isMuted, setIsMuted] = useState(true);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({}); // userId -> MediaStream
   const [speakingUsers, setSpeakingUsers] = useState({}); // userId -> boolean
 
-  // Production-grade Refs
   const audioRouterRef = useRef(null);
   const vadsRef = useRef({}); // userId -> VADProcessor
   const isMicLocked = settings?.lockMic && !isAdmin;
   const isInitializingMicRef = useRef(false);
 
-  // Track state in refs to avoid stale closures
   const isMutedRef = useRef(isMuted);
   const localStreamRef = useRef(localStream);
 
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
 
-  // ─── 1. VAD & Signaling ───────────────────────────────────────────────────
   const setupVAD = useCallback((userId, stream) => {
     if (!audioRouterRef.current) return;
     
-    // Cleanup existing VAD for this user
     if (vadsRef.current[userId]) vadsRef.current[userId].stop();
 
     vadsRef.current[userId] = new VADProcessor(
@@ -104,7 +97,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
           return { ...prev, [userId]: isSpeaking };
         });
         
-        // Sync speaking state if it's the local user
         if (userId === currentUser.id) {
           socket?.emit('speaking-state-change', { roomId, userId, isSpeaking });
         }
@@ -124,7 +116,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     });
   }, []);
 
-  // ─── 2. Initialize Audio Subsystem ────────────────────────────────────────
   
   const initMic = useCallback(async (force = false) => {
     if (isInitializingMicRef.current) {
@@ -148,7 +139,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       });
       
       console.log('[AudioSubsystem] Local microphone initialized successfully');
-      // If we were muted before, keep it muted
       stream.getAudioTracks().forEach(t => {
         t.enabled = !isMutedRef.current;
         console.log(`[AudioSubsystem] Initial track state for ${t.id}: ${t.enabled ? 'ENABLED' : 'MUTED'}`);
@@ -159,7 +149,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
       audioRouterRef.current?.setLocalStream(stream);
       setupVAD(currentUser.id, stream);
 
-      // Handle stream ending (e.g., unplugged mic)
       stream.getAudioTracks()[0].onended = () => {
         console.warn('[AudioSubsystem] Local mic track ended unexpectedly. Attempting recovery...');
         setTimeout(() => initMic(true), 2000);
@@ -202,7 +191,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     window.addEventListener('click', handleInteraction);
     window.addEventListener('touchstart', handleInteraction);
 
-    // Periodic health check
     const healthInterval = setInterval(() => {
       audioRouterRef.current?.checkHealth();
     }, 15000);
@@ -215,7 +203,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     };
   }, [socket, roomId, currentUser.id, initMic, setupVAD, teardownVAD]);
 
-  // ─── 3. Mesh Control & Signaling Handlers ────────────────────────────────
   useEffect(() => {
     if (!socket || !audioRouterRef.current) return;
 
@@ -237,7 +224,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     socket.on('user-left', onUserLeft);
     socket.on('speaking-update', onSpeakingUpdate);
 
-    // Initial sync
     users.forEach(user => {
       if (user.id !== currentUser.id) audioRouterRef.current.initiateConnection(user.id);
     });
@@ -266,7 +252,6 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
     return () => clearInterval(reconnectInterval);
   }, [users, currentUser.id]);
 
-  // ─── 4. UI Actions ───────────────────────────────────────────────────────
   const handleMuteToggle = async () => {
     if (isMicLocked) return;
     const nextMuteState = !isMutedRef.current;
@@ -343,8 +328,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
         ))}
       </div>
 
-
-      {/* Backdrop */}
+      
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[80] transition-opacity animate-in fade-in duration-300"
@@ -352,11 +336,11 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
         />
       )}
 
-      {/* Panel */}
+      
       <div className={`fixed top-0 right-0 h-full w-[350px] bg-[#0f0f0f] border-l border-white/5 z-[90] shadow-2xl transition-transform duration-500 ease-out transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex flex-col h-full">
 
-          {/* Header */}
+          
           <div className="p-6 border-b border-white/5 flex items-center justify-between bg-[#141414]">
             <div>
               <h2 className="text-xl font-black text-white tracking-tight uppercase">Management</h2>
@@ -376,7 +360,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide bg-[#0a0a0a]">
-            {/* Audio Section */}
+            
             <section>
               <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Voice Communication</h3>
               <div className="bg-[#111] rounded-none p-5 border border-white/5 space-y-4">
@@ -403,7 +387,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
               </div>
             </section>
 
-            {/* Room Settings (Admin Only) */}
+            
             <section className={isAdmin ? 'block' : 'opacity-30 pointer-events-none'}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">System Controls</h3>
@@ -431,7 +415,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
               </div>
             </section>
 
-            {/* Participants */}
+            
             <section>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">Operatives</h3>
@@ -510,7 +494,7 @@ function Sidebar({ isOpen, onClose, roomId, settings, onSettingsChange }) {
             </section>
           </div>
 
-          {/* Footer */}
+          
           <div className="p-6 bg-[#141414] border-t border-white/5 space-y-3">
             <button
               onClick={() => {

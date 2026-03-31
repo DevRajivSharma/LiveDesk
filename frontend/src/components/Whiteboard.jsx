@@ -15,15 +15,12 @@ function Whiteboard({ roomId, isLocked, onChange }) {
   const isDrawing = useRef(false)
   const isRemoteUpdating = useRef(false) // Flag to skip onChange during remote sync
 
-  // Update whiteboard when synced data changes
   useEffect(() => {
     if (!syncedData || syncedData === 'null' || !excalidrawAPI) return
 
-    // Don't apply updates while the user is actively drawing/dragging to prevent jumps
     if (isDrawing.current) return;
 
     try {
-      // If this matches what we already have, skip to avoid loops
       const sceneDataStr = typeof syncedData === 'string' ? syncedData : JSON.stringify(syncedData);
       if (sceneDataStr === lastProcessedData.current) return;
 
@@ -32,10 +29,8 @@ function Whiteboard({ roomId, isLocked, onChange }) {
 
       console.log('📥 Applying remote whiteboard sync...');
       
-      // Mark this as processed BEFORE updating the scene to avoid re-emitting
       lastProcessedData.current = sceneDataStr;
       
-      // Set the remote updating flag to prevent onChange from re-emitting this change
       isRemoteUpdating.current = true;
 
       excalidrawAPI.updateScene({
@@ -44,10 +39,8 @@ function Whiteboard({ roomId, isLocked, onChange }) {
         commitToHistory: false
       });
 
-      // Also notify parent of the remote change, but only if it's actually different
       onChange?.(parsedData);
 
-      // Reset the flag after a short delay to allow Excalidraw to finish its update cycle
       setTimeout(() => {
         isRemoteUpdating.current = false;
       }, 50);
@@ -57,18 +50,13 @@ function Whiteboard({ roomId, isLocked, onChange }) {
     }
   }, [syncedData, excalidrawAPI]) // Removed onChange from dependencies to avoid potential loops if parent doesn't memoize it
 
-  // Handle local changes
   const handleElementsChange = useCallback((elements_, appState, files_) => {
-    // If the room is locked for this user, do not process or emit any local changes
     if (isLocked) return;
 
-    // Skip if this change was triggered by a remote sync
     if (isRemoteUpdating.current) return;
 
-    // If we don't have the API yet, we can't do anything
     if (!excalidrawAPI || !appState) return
 
-    // Track if user is currently interacting
     const interactionActive = appState.isResizing || 
                               appState.isRotating || 
                               !!appState.draggingElement || 
@@ -77,51 +65,38 @@ function Whiteboard({ roomId, isLocked, onChange }) {
 
     isDrawing.current = interactionActive && !appState.pointerInteractionFinished;
 
-    // Check if there are elements to sync
-    // If elements is an empty array, we still want to sync the clear state
     if (!elements_) return;
 
-    // Check if the content actually changed (ignoring UI state like selection)
     const currentSceneData = {
       elements: elements_,
       files: files_ || {}
     }
     const currentSceneDataStr = JSON.stringify(currentSceneData);
 
-    // If this change matches what we just processed (remote or local), skip emitting
     if (currentSceneDataStr === lastProcessedData.current) return;
 
-    // Update our tracker so we don't re-process our own change
     lastProcessedData.current = currentSceneDataStr;
 
-    // Notify parent of the change only when data actually changes
     onChange?.(currentSceneData);
 
-    // Personal workspace logic
     if (roomId === 'personal') {
       localStorage.setItem('livedesk-personal-whiteboard', currentSceneDataStr)
       return
     }
 
-    // Debounce the socket emit
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current)
     }
 
-    // Fast real-time sync for better experience
-    // 30ms when drawing/dragging for smooth real-time, 10ms when finished
     const delay = appState.pointerInteractionFinished ? 10 : 30;
 
     debounceTimer.current = setTimeout(() => {
-      // Re-verify that the data hasn't changed since we started the timeout
-      // to avoid race conditions
       console.log('📤 Sending whiteboard update...');
       
       emitWhiteboardUpdate(roomId, currentSceneDataStr)
     }, delay)
   }, [roomId, emitWhiteboardUpdate, excalidrawAPI, isLocked, onChange])
 
-  // Prepare initial data from synced data if available
   const getInitialData = () => {
     if (!syncedData) return { elements: [], files: {} };
     
@@ -139,7 +114,6 @@ function Whiteboard({ roomId, isLocked, onChange }) {
     }
   };
 
-  // Handle manual whiteboard loads (e.g., from snapshots or files)
   useEffect(() => {
     const handleManualLoad = (e) => {
       const { data } = e.detail;
@@ -157,7 +131,6 @@ function Whiteboard({ roomId, isLocked, onChange }) {
           commitToHistory: true
         });
 
-        // Force local state update to ensure persistence
         onChange?.(parsedData);
         
         if (roomId === 'personal') {

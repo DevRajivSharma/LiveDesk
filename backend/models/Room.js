@@ -1,17 +1,5 @@
 import mongoose from 'mongoose';
 
-/**
- * Room Schema - Stores collaborative workspace state
- *
- * Fields:
- * - roomId: Unique identifier (e.g., "abc-123-def")
- * - code: Current code in Monaco editor (string)
- * - whiteboardData: Serialized Excalidraw canvas state (JSON)
- * - language: Programming language for Monaco (default: 'javascript')
- * - users: Array of connected user objects
- * - createdAt: Timestamp
- * - updatedAt: Last modification timestamp
- */
 const roomSchema = new mongoose.Schema({
   roomId: {
     type: String,
@@ -75,21 +63,15 @@ const roomSchema = new mongoose.Schema({
   }
 });
 
-// Index for efficient queries
 roomSchema.index({ updatedAt: -1 });
 
-// Virtual for active user count
 roomSchema.virtual('activeUsers').get(function() {
   return this.users.length;
 });
 
-// Ensure virtuals are included in JSON
 roomSchema.set('toJSON', { virtuals: true });
 roomSchema.set('toObject', { virtuals: true });
 
-/**
- * Static method to find or create a room
- */
 roomSchema.statics.findOrCreate = async function(roomId) {
   let room = await this.findOne({ roomId });
   if (!room) {
@@ -98,17 +80,11 @@ roomSchema.statics.findOrCreate = async function(roomId) {
   return room;
 };
 
-/**
- * Method to update code and auto-save
- */
 roomSchema.methods.updateCode = async function(newCode, userId) {
   this.code = newCode;
   return await this.save();
 };
 
-/**
- * Method to update whiteboard data
- */
 roomSchema.methods.updateWhiteboard = async function(whiteboardData, userId) {
   this.whiteboardData = whiteboardData;
   return await this.save();

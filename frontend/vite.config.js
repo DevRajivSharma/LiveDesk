@@ -4,7 +4,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   define: {
-    // Polyfill for @excalidraw/excalidraw
     'process.env': {},
     'process': JSON.stringify({ env: {} }),
     'global': 'globalThis'

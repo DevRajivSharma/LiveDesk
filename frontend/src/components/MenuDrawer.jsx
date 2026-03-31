@@ -30,7 +30,6 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
   const fileInputRef = useRef(null)
   const terminalRef = useRef(null)
 
-  // Load data from backend on mount
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -46,7 +45,6 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
             return;
           }
         }
-        // Fallback to localstorage if not logged in or error
         setUploadedFiles(JSON.parse(localStorage.getItem(`livedesk-files-${roomId}`) || '[]'))
       } catch (e) {
         console.error('Error loading files:', e);
@@ -62,7 +60,6 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
     return () => window.removeEventListener('livedesk-files-updated', loadData);
   }, [roomId])
 
-  // Auto-scroll terminal
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight
@@ -126,7 +123,6 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
 
   const handleLoadSnippet = (snippet) => {
     if (confirm(`INITIALIZE_SESSION: Load "${snippet.name}" state? This will overwrite active data.`)) {
-      // If it's a full snapshot, it will have code and whiteboardData inside
       const data = snippet.isFullSnapshot ? (typeof snippet.code === 'string' ? JSON.parse(snippet.code) : snippet.code) : snippet;
       
       if (data.code !== undefined && !snippet.isBoardSnapshot) {
@@ -140,7 +136,6 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
           detail: { data: data.whiteboardData } 
         }));
       } else if (snippet.isBoardSnapshot) {
-        // Legacy board snapshot support
         window.dispatchEvent(new CustomEvent('livedesk-load-whiteboard', { 
           detail: { data: typeof snippet.code === 'string' ? JSON.parse(snippet.code) : snippet.code } 
         }));
@@ -243,7 +238,6 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
     setIsExecuting(true)
     setConsoleOutput([])
 
-    // Add to terminal output
     const timestamp = new Date().toLocaleTimeString()
     setTerminalOutput(prev => [...prev, { type: 'command', text: `$ run ${language || 'javascript'} script`, time: timestamp }])
 
@@ -336,9 +330,9 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
   if (inline) {
     return (
       <div className="flex flex-col h-full bg-[#0a0a0a]">
-        {/* Content Area */}
+        
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-          {/* Files Tab */}
+          
           {activeTab === 'files' && (
             <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-center justify-between">
@@ -385,7 +379,7 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
                           </div>
                         </div>
                         
-                        {/* Expanded Snapshot View */}
+                        
                         {viewingSnapshot?.name === file.name && (
                           <div className="border-t border-white/5 p-6 bg-black/60 animate-in slide-in-from-top-2">
                             <div className="bg-[#050505] p-6 border border-white/10 font-mono text-[10px] text-slate-400 max-h-60 overflow-y-auto custom-scrollbar">
@@ -414,7 +408,7 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
             </div>
           )}
 
-          {/* Snippets Tab - Acting as Library */}
+          
           {activeTab === 'snippets' && (
             <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-center justify-between">
@@ -431,7 +425,7 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4">
-                  {/* Full Session Snapshots */}
+                  
                   <div className="space-y-4">
                     <h4 className="text-[8px] font-black text-blue-500 uppercase tracking-[0.4em] border-b border-blue-500/10 pb-2">Full Session Bundles</h4>
                     {uploadedFiles.filter(f => f.isFullSnapshot && f.roomId === roomId).map((file, i) => (
@@ -445,7 +439,7 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
                     ))}
                   </div>
 
-                  {/* Separate sections for Editor and Board */}
+                  
                   <div className="space-y-4 mt-8">
                     <h4 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.4em] border-b border-white/5 pb-2">Editor Snapshots</h4>
                     {uploadedFiles.filter(f => f.isSnapshot && f.roomId === roomId).map((file, i) => (
@@ -482,14 +476,14 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
 
   return (
     <>
-      {/* Backdrop */}
+      
       {isOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] animate-in fade-in duration-300" onClick={onClose} />
       )}
 
-      {/* Drawer */}
+      
       <div className={`fixed top-0 right-0 h-full w-[400px] bg-[#0f0f0f] border-l border-white/10 z-[100] shadow-2xl transition-transform duration-500 ease-out transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        {/* Header */}
+        
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-[#141414]">
           <h2 className="text-lg font-black text-white uppercase tracking-wider">Workspace Tools</h2>
           <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-xl transition-colors text-slate-500 hover:text-white">
@@ -497,7 +491,7 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
           </button>
         </div>
 
-        {/* Tabs */}
+        
         <div className="flex border-b border-white/5 bg-[#111]">
           {tabs.map(tab => (
             <button
@@ -515,9 +509,9 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
           ))}
         </div>
 
-        {/* Content */}
+        
         <div className="flex-1 overflow-y-auto" style={{ height: 'calc(100% - 130px)' }}>
-          {/* Original drawer content goes here if needed, but the redesign prioritized inline */}
+          
         </div>
       </div>
     </>

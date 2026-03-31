@@ -1,15 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useSocketContext } from '../contexts/SocketContext'
 
-/**
- * Custom hook for socket event handling
- * Provides utilities for listening to specific events
- */
 export function useSocketEvent(event, callback) {
   const { socket } = useSocketContext()
   const callbackRef = useRef(callback)
 
-  // Keep callback ref updated
   useEffect(() => {
     callbackRef.current = callback
   }, [callback])
@@ -17,7 +12,6 @@ export function useSocketEvent(event, callback) {
   useEffect(() => {
     if (!socket) return
 
-    // Wrap callback to use ref
     const handler = (...args) => {
       callbackRef.current(...args)
     }
@@ -30,23 +24,16 @@ export function useSocketEvent(event, callback) {
   }, [socket, event])
 }
 
-/**
- * Hook specifically for code updates from other users
- */
 export function useCodeSync(roomId) {
   const { roomState } = useSocketContext()
   
   if (roomId === 'personal') {
-    // Return null or personal code from localStorage if we decide to implement persistence later
     return { code: localStorage.getItem('livedesk-personal-code') || '', language: localStorage.getItem('livedesk-personal-lang') || 'javascript' }
   }
   
   return { code: roomState?.code, language: roomState?.language }
 }
 
-/**
- * Hook specifically for whiteboard sync
- */
 export function useWhiteboardSync(roomId) {
   const { roomState } = useSocketContext()
   const [personalData, setPersonalData] = useState(() => {
@@ -64,7 +51,6 @@ export function useWhiteboardSync(roomId) {
     return null
   })
 
-  // Keep personal data in sync with localStorage changes (e.g., from other tabs)
   useEffect(() => {
     if (roomId !== 'personal') return;
 
@@ -89,9 +75,6 @@ export function useWhiteboardSync(roomId) {
   return roomState?.whiteboardData
 }
 
-/**
- * Hook for WebRTC signaling (future scope)
- */
 export function useWebRTCSignaling(roomId) {
   const { socket } = useSocketContext()
 
@@ -113,9 +96,6 @@ export function useWebRTCSignaling(roomId) {
   return { sendOffer, sendAnswer, sendIceCandidate }
 }
 
-/**
- * Hook for code execution (future scope)
- */
 export function useCodeExecution() {
   const executeCode = useCallback(async (code, language, roomId) => {
     try {

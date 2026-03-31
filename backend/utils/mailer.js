@@ -1,12 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-
 const EMAIL_API_URL = process.env.EMAIL_API_URL || 'http://localhost:3000';
 
-/**
- * Helper: call your Email API
- */
 const sendViaAPI = async (mailOptions) => {
   console.log('EMAIL_API_URL URL:',process.env.EMAIL_API_URL)
   const res = await fetch(`${EMAIL_API_URL}/api/email/send`, {
@@ -20,9 +16,6 @@ const sendViaAPI = async (mailOptions) => {
   return data;
 };
 
-/**
- * Send OTP for email verification
- */
 export const sendOTP = async (email, otp) => {
   try {
     await sendViaAPI({
@@ -49,9 +42,6 @@ export const sendOTP = async (email, otp) => {
   }
 };
 
-/**
- * Send Password Reset Link
- */
 export const sendResetLink = async (email, resetToken) => {
   const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
 

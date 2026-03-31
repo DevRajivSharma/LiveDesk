@@ -11,19 +11,16 @@ import Profile from './pages/Profile'
 import { Component } from 'react'
 import { Toaster } from 'react-hot-toast'
 
-// Private Route Component
 const PrivateRoute = ({ children }) => {
   const isAuthenticated = !!localStorage.getItem('livedesk-token');
   return isAuthenticated ? children : <Navigate to="/login" />;
 };
 
-// Public Route Component (for Landing page)
 const PublicRoute = ({ children }) => {
   const isAuthenticated = !!localStorage.getItem('livedesk-token');
   return isAuthenticated ? <Navigate to="/home" /> : children;
 };
 
-// Error Boundary Class Component
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props)

@@ -13,7 +13,6 @@ function RoomManager() {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
   const navigate = useNavigate()
 
-  // Create a new room
   const handleCreateRoom = async () => {
     try {
       const response = await fetch(`${API_URL}/api/room`, {
@@ -31,7 +30,6 @@ function RoomManager() {
     }
   }
 
-  // Join existing room
   const handleJoinRoom = async (e) => {
     e.preventDefault()
     if (!roomId.trim()) return
@@ -61,7 +59,7 @@ function RoomManager() {
 
   return (
     <div className="w-full bg-[#0a0a0a] text-slate-200 font-sans p-10 border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
-      {/* Connection Status */}
+      
       {!isConnected && (
         <div className="mb-10 p-4 bg-red-600 text-white flex items-center justify-center gap-3">
           <Activity className="w-4 h-4 animate-pulse" />
@@ -70,7 +68,7 @@ function RoomManager() {
       )}
 
       <div className="space-y-12">
-        {/* Header */}
+        
         <div className="flex items-center justify-between border-b border-white/10 pb-8">
           <div className="flex items-center gap-4">
             <div className="w-2 h-2 bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.5)]" />
@@ -80,7 +78,7 @@ function RoomManager() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
-          {/* Create Section */}
+          
           <div className="flex flex-col">
             <div className="space-y-3 mb-10">
               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Initialize Session</h3>
@@ -110,7 +108,7 @@ function RoomManager() {
             </div>
           </div>
 
-          {/* Join Section */}
+          
           <div className="flex flex-col">
             <div className="space-y-3 mb-10">
               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Join Protocol</h3>

@@ -9,7 +9,7 @@ function UserModal({ isOpen, onClose }) {
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-        {/* Header */}
+        
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900">
           <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <span className="flex h-3 w-3 rounded-full bg-green-500 animate-pulse"></span>
@@ -26,7 +26,7 @@ function UserModal({ isOpen, onClose }) {
           </button>
         </div>
 
-        {/* Content */}
+        
         <div className="px-2 py-4 max-h-[60vh] overflow-y-auto bg-slate-950">
           {users.map((user) => {
             const isMe = user.id === currentUser?.id;
@@ -35,7 +35,7 @@ function UserModal({ isOpen, onClose }) {
                 key={user.id} 
                 className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${isMe ? 'bg-slate-800/50 border border-slate-700' : 'hover:bg-slate-900'}`}
               >
-                {/* Avatar */}
+                
                 <div 
                   className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-lg border-2 border-slate-800"
                   style={{ backgroundColor: user.color || '#6366f1' }}
@@ -43,7 +43,7 @@ function UserModal({ isOpen, onClose }) {
                   {(user.name || 'A').charAt(0).toUpperCase()}
                 </div>
 
-                {/* Info */}
+                
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-slate-200 truncate text-base">
@@ -61,7 +61,7 @@ function UserModal({ isOpen, onClose }) {
                   </div>
                 </div>
 
-                {/* Status Dot */}
+                
                 <div className="text-xs font-medium text-slate-500">
                   {new Date(user.joinedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
@@ -70,7 +70,7 @@ function UserModal({ isOpen, onClose }) {
           })}
         </div>
 
-        {/* Footer */}
+        
         <div className="px-6 py-4 bg-slate-900 border-t border-slate-800 flex justify-end">
           <button
             onClick={onClose}

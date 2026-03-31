@@ -35,7 +35,7 @@ function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#050505] p-4 relative overflow-hidden font-sans">
-      {/* Dynamic Background */}
+      
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-blue-600/10 rounded-full blur-[120px] animate-pulse" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-primary-600/10 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
@@ -43,7 +43,7 @@ function Login() {
       </div>
 
       <div className="w-full max-w-[1100px] grid lg:grid-cols-2 bg-[#0a0a0a] border border-white/5 rounded-none shadow-2xl overflow-hidden z-10">
-        {/* Left Side: Visual/Branding */}
+        
         <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-blue-900/20 to-black relative overflow-hidden border-r border-white/5">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
           
@@ -72,7 +72,7 @@ function Login() {
           </div>
         </div>
 
-        {/* Right Side: Form */}
+        
         <div className="p-8 lg:p-16 flex flex-col justify-center relative bg-[#050505]">
           <div className="max-w-md mx-auto w-full">
             <div className="mb-10 text-center lg:text-left">

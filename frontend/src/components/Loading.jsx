@@ -3,18 +3,18 @@ import React from 'react';
 function Loading({ message = 'Loading workspace...' }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] p-4 relative overflow-hidden">
-      {/* Background Decorative Elements */}
+      
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary-900/20 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-900/20 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="z-10 flex flex-col items-center">
-        {/* Professional Block Logo Animation */}
+        
         <div className="relative mb-8">
           <div className="w-24 h-24 bg-gradient-to-tr from-primary-600 to-blue-600 rounded-[2rem] shadow-2xl shadow-primary-500/20 animate-pulse flex items-center justify-center">
             <span className="text-white font-black text-5xl tracking-tighter animate-bounce">L</span>
           </div>
           
-          {/* Orbiting dots */}
+          
           <div className="absolute inset-[-20px] rounded-full border border-white/5 animate-[spin_4s_linear_infinite]">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 bg-primary-500 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.8)]" />
           </div>
@@ -23,7 +23,7 @@ function Loading({ message = 'Loading workspace...' }) {
           </div>
         </div>
 
-        {/* Loading Text */}
+        
         <div className="text-center space-y-3">
           <h2 className="text-2xl font-black text-white tracking-tight uppercase">
             {message}

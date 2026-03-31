@@ -109,7 +109,7 @@ function Profile() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-slate-200 font-sans pb-20 relative overflow-hidden">
-      {/* 1. Top Navigation - Sharp Edges */}
+      
       <nav className="flex items-center justify-between px-6 py-2 bg-[#0a0a0a] border-b border-white/10 z-50 h-14 sticky top-0">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-6">
@@ -135,9 +135,9 @@ function Profile() {
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 mt-12">
-        {/* Symmetric 3-Box Wireframe Layout */}
+        
         <div className="space-y-12">
-          {/* 1. Top Wide Box - Core Identity */}
+          
           <div className="bg-black/40 border border-white/10 p-12 shadow-2xl relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-full h-1 bg-blue-600" />
             <div className="flex flex-col md:flex-row items-center gap-12 relative z-10">
@@ -183,9 +183,9 @@ function Profile() {
             </div>
           </div>
 
-          {/* Bottom Grid: 2 Symmetric Boxes */}
+          
           <div className="grid lg:grid-cols-2 gap-12">
-            {/* 2. Bottom Left Box - Biography & Stats */}
+            
             <div className="bg-black/40 border border-white/10 p-10 shadow-2xl space-y-10">
               <div className="flex items-center gap-4 border-b border-white/5 pb-6">
                 <div className="w-2 h-2 bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.5)]" />
@@ -252,7 +252,7 @@ function Profile() {
               )}
             </div>
 
-            {/* 3. Bottom Right Box - Technical Arsenal & Networks */}
+            
             <div className="bg-black/40 border border-white/10 p-10 shadow-2xl space-y-10">
               <div className="flex items-center gap-4 border-b border-white/5 pb-6">
                 <div className="w-2 h-2 bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.5)]" />

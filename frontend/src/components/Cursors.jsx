@@ -6,7 +6,6 @@ function Cursors() {
   return (
     <>
       {Object.values(cursors).map((cursor) => {
-        // Don't show our own cursor
         if (currentUser && cursor.userId === currentUser.id) return null
 
         return (
@@ -18,7 +17,7 @@ function Cursors() {
               top: `${cursor.y}px`,
             }}
           >
-            {/* Cursor Icon */}
+            
             <svg
               width="24"
               height="24"
@@ -34,7 +33,7 @@ function Cursors() {
               />
             </svg>
 
-            {/* User Label */}
+            
             <div
               className="px-2 py-1 rounded-md text-xs font-medium text-white whitespace-nowrap shadow-sm mt-1"
               style={{ backgroundColor: cursor.color }}
