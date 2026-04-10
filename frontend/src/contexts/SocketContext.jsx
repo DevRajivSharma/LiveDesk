@@ -22,12 +22,17 @@ export function SocketProvider({ children }) {
 
   useEffect(() => {
     try {
+      const token = localStorage.getItem('livedesk-token');
+
       const newSocket = io(SOCKET_URL, {
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        timeout: 5000
+        timeout: 5000,
+        auth: {
+          token: token
+        }
       })
 
       newSocket.on('connect', () => {
@@ -51,6 +56,19 @@ export function SocketProvider({ children }) {
       newSocket.on('connect_error', (err) => {
         console.error('Socket connection error:', err.message)
         setError(`Connection failed: ${err.message}. Make sure the server is running on port 3001.`)
+      })
+
+      // Handle session expiry and auth errors
+      newSocket.on('error', (data) => {
+        console.error('Socket error:', data.message)
+        if (data.message === 'Session expired. Please login again.' ||
+            data.message === 'Invalid token. Please login again.' ||
+            data.message === 'Invalid session.') {
+          // Clear token and redirect to login
+          localStorage.removeItem('livedesk-token')
+          localStorage.removeItem('livedesk-user')
+          window.location.href = '/login?reason=session_expired'
+        }
       })
 
       newSocket.on('room-state', (state) => {

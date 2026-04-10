@@ -60,10 +60,25 @@ const roomSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  expiresAt: {
+    type: Date,
+    default: () => new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from creation
+  },
+  lastActivityAt: {
+    type: Date,
+    default: Date.now
+  },
+  isEnded: {
+    type: Boolean,
+    default: false
   }
 });
 
-roomSchema.index({ updatedAt: -1 });
+// Index for finding expired rooms
+roomSchema.index({ expiresAt: 1 });
+roomSchema.index({ lastActivityAt: -1 });
+roomSchema.index({ isEnded: 1 });
 
 roomSchema.virtual('activeUsers').get(function() {
   return this.users.length;
@@ -82,12 +97,57 @@ roomSchema.statics.findOrCreate = async function(roomId) {
 
 roomSchema.methods.updateCode = async function(newCode, userId) {
   this.code = newCode;
+  this.lastActivityAt = new Date();
+  this.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // Extend by 24 hours
   return await this.save();
 };
 
 roomSchema.methods.updateWhiteboard = async function(whiteboardData, userId) {
   this.whiteboardData = whiteboardData;
+  this.lastActivityAt = new Date();
+  this.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   return await this.save();
+};
+
+// Method to update activity timestamp
+roomSchema.methods.updateActivity = async function() {
+  this.lastActivityAt = new Date();
+  this.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return await this.save();
+};
+
+// Method to end a room
+roomSchema.methods.endRoom = async function() {
+  this.isEnded = true;
+  this.users = [];
+  return await this.save();
+};
+
+// Static method to clean up expired rooms
+roomSchema.statics.cleanupExpiredRooms = async function() {
+  const result = await this.deleteMany({
+    expiresAt: { $lt: new Date() },
+    isEnded: false
+  });
+  if (result.deletedCount > 0) {
+    console.log(`[Room Cleanup] Deleted ${result.deletedCount} expired rooms`);
+  }
+  return result;
+};
+
+// Static method to end rooms with no users
+roomSchema.statics.endInactiveRooms = async function() {
+  // Rooms with no users that haven't been updated in 1 hour
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const result = await this.updateMany(
+    {
+      users: { $size: 0 },
+      lastActivityAt: { $lt: oneHourAgo },
+      isEnded: false
+    },
+    { $set: { isEnded: true } }
+  );
+  return result;
 };
 
 const Room = mongoose.model('Room', roomSchema);

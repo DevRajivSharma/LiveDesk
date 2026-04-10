@@ -293,7 +293,7 @@ function Home() {
         <main className="flex-1 bg-[#0a0a0a] flex flex-col relative overflow-hidden">
           
           {/* Main Container Header with View Toggles */}
-          <div className="px-6 py-2 border-b border-white/10 flex items-center justify-between bg-black/40">
+          <div className="px-6 py-2 border-b border-white/10 flex items-center justify-between w-full bg-black/40">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 text-slate-500">
                 <LayoutGrid className="w-4 h-4" />
@@ -338,7 +338,7 @@ function Home() {
               ))}
             </div>
 
-            <div className="w-48" /> {/* Spacer to balance header */}
+            {/* <div className="w-48" /> Spacer to balance header */}
           </div>
 
           {/* Content Container */}

@@ -11,7 +11,8 @@ import Room from './models/Room.js';
 import File from './models/File.js';
 import authRoutes from './routes/auth.js';
 import { verifyToken } from './middleware/auth.js';
-import { connectRedis } from './config/redis.js';
+import { connectRedis, client as redis } from './config/redis.js';
+import jwt from 'jsonwebtoken';
 import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -27,7 +28,76 @@ const ALLOWED_ORIGINS = [
   'http://192.168.1.7:5173'
 ];
 
+// Security: Rate limiting map (simple in-memory implementation)
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const MAX_REQUESTS = 100; // Max requests per window
+
+const rateLimitMiddleware = (req, res, next) => {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+
+  if (!rateLimitMap.has(ip)) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return next();
+  }
+
+  const record = rateLimitMap.get(ip);
+
+  if (now > record.resetTime) {
+    // Reset the counter
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return next();
+  }
+
+  if (record.count >= MAX_REQUESTS) {
+    return res.status(429).json({ message: 'Too many requests. Please try again later.' });
+  }
+
+  record.count++;
+  rateLimitMap.set(ip, record);
+  next();
+};
+
+// Security: Input sanitization
+const sanitizeInput = (req, res, next) => {
+  const sanitize = (obj) => {
+    if (!obj) return obj;
+    for (const key in obj) {
+      if (typeof obj[key] === 'string') {
+        // Remove potential XSS vectors
+        obj[key] = obj[key]
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#x27;')
+          .replace(/\//g, '&#x2F;');
+      }
+    }
+    return obj;
+  };
+
+  if (req.body) sanitize(req.body);
+  if (req.query) sanitize(req.query);
+  if (req.params) sanitize(req.params);
+  next();
+};
+
 await connectRedis();
+
+// Room cleanup scheduler - runs every hour to clean up expired rooms
+setInterval(async () => {
+  try {
+    await Room.cleanupExpiredRooms();
+    await Room.endInactiveRooms();
+  } catch (error) {
+    console.error('[Room Cleanup] Error cleaning up rooms:', error);
+  }
+}, 60 * 60 * 1000); // Every hour
+
+// Initial cleanup on server start
+Room.cleanupExpiredRooms().catch(err => console.error('[Room Cleanup] Initial cleanup failed:', err));
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -39,10 +109,25 @@ const io = new Server(httpServer, {
   }
 });
 
+// Security middleware
+app.use(rateLimitMiddleware);
+app.use(sanitizeInput);
+
 app.use(cors({
   origin: ALLOWED_ORIGINS,
   credentials: true
 }));
+
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss: http: https:;");
+  next();
+});
+
 app.use(express.json({ limit: '50mb' })); // Increased limit for whiteboard data
 
 app.use('/api/auth', authRoutes);
@@ -218,10 +303,58 @@ app.post('/api/execute', async (req, res) => {
 
 const userSockets = new Map(); // socketId -> { roomId, userId, userName }
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
 
-  
+  // Verify session on connection
+  const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+
+  if (!token) {
+    console.log(`🔌 Socket ${socket.id} rejected: No token provided`);
+    socket.emit('error', { message: 'Authentication required' });
+    socket.disconnect();
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'livedesk_secret');
+    const { id: userId, sessionId } = decoded;
+
+    if (!sessionId) {
+      console.log(`🔌 Socket ${socket.id} rejected: No session ID`);
+      socket.emit('error', { message: 'Invalid token. Please login again.' });
+      socket.disconnect();
+      return;
+    }
+
+    const sessionData = await redis.get(`session_${sessionId}`);
+    if (!sessionData) {
+      console.log(`🔌 Socket ${socket.id} rejected: Session expired`);
+      socket.emit('error', { message: 'Session expired. Please login again.' });
+      socket.disconnect();
+      return;
+    }
+
+    const session = JSON.parse(sessionData);
+    if (session.userId !== userId) {
+      console.log(`🔌 Socket ${socket.id} rejected: Invalid session`);
+      socket.emit('error', { message: 'Invalid session.' });
+      socket.disconnect();
+      return;
+    }
+
+    // Store verified user info in socket
+    socket.data.userId = userId;
+    socket.data.sessionId = sessionId;
+    console.log(`🔌 Socket ${socket.id} authenticated for user ${userId}`);
+
+  } catch (err) {
+    console.log(`🔌 Socket ${socket.id} rejected: Invalid token - ${err.message}`);
+    socket.emit('error', { message: 'Invalid token.' });
+    socket.disconnect();
+    return;
+  }
+
   socket.on('join-room', async ({ roomId, userName, userId: providedUserId }) => {
     try {
       let room = await Room.findOne({ roomId });
@@ -249,6 +382,16 @@ io.on('connection', (socket) => {
       }
 
       await room.save();
+
+      // Update room activity when user joins
+      await Room.findOneAndUpdate(
+        { roomId },
+        {
+          lastActivityAt: new Date(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          isEnded: false
+        }
+      );
 
       const userExists = room.users.some(u => u.id === userId);
       
@@ -306,7 +449,7 @@ io.on('connection', (socket) => {
 
       await Room.findOneAndUpdate(
         { roomId },
-        { code, language, updatedAt: new Date() },
+        { code, language, updatedAt: new Date(), lastActivityAt: new Date() },
         { new: true }
       );
     } catch (error) {
@@ -346,7 +489,11 @@ io.on('connection', (socket) => {
   
   socket.on('admin-terminate-room', async ({ roomId }) => {
     try {
-      await Room.findOneAndDelete({ roomId });
+      // Mark room as ended instead of deleting
+      await Room.findOneAndUpdate(
+        { roomId },
+        { isEnded: true, users: [] }
+      );
       io.to(roomId).emit('room-terminated');
     } catch (error) {
       console.error('Error terminating room:', error);
@@ -365,9 +512,10 @@ io.on('connection', (socket) => {
           try {
             await Room.findOneAndUpdate(
               { roomId },
-              { 
-                whiteboardData: parsedData, 
-                updatedAt: new Date() 
+              {
+                whiteboardData: parsedData,
+                updatedAt: new Date(),
+                lastActivityAt: new Date()
               }
             );
             whiteboardSaveTimers.delete(roomId);
@@ -501,7 +649,10 @@ io.on('connection', (socket) => {
         if (!hasOtherSockets) {
           await Room.findOneAndUpdate(
             { roomId },
-            { $pull: { users: { id: userId } } }
+            {
+              $pull: { users: { id: userId } },
+              lastActivityAt: new Date()
+            }
           );
           socket.to(roomId).emit('user-left', { userId, userName });
         }
@@ -524,7 +675,10 @@ io.on('connection', (socket) => {
       if (userInfo) {
         await Room.findOneAndUpdate(
           { roomId },
-          { $pull: { users: { id: userInfo.userId } } }
+          {
+            $pull: { users: { id: userInfo.userId } },
+            lastActivityAt: new Date()
+          }
         );
 
         socket.to(roomId).emit('user-left', {

@@ -161,14 +161,30 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files)
     const token = localStorage.getItem('livedesk-token');
-    
+
     files.forEach((file) => {
       const reader = new FileReader()
       reader.onload = async (e) => {
         const isExcalidraw = file.name.endsWith('.excalidraw') || (file.type === 'application/json' && file.name.includes('board'));
+
+        // Get file type, fallback to a default based on extension if empty
+        let fileType = file.type;
+        if (!fileType) {
+          if (file.name.endsWith('.js') || file.name.endsWith('.jsx')) fileType = 'text/javascript';
+          else if (file.name.endsWith('.py')) fileType = 'text/python';
+          else if (file.name.endsWith('.txt')) fileType = 'text/plain';
+          else if (file.name.endsWith('.json')) fileType = 'application/json';
+          else if (file.name.endsWith('.excalidraw')) fileType = 'application/json';
+          else if (file.name.endsWith('.png')) fileType = 'image/png';
+          else if (file.name.endsWith('.jpg') || file.name.endsWith('.jpeg')) fileType = 'image/jpeg';
+          else if (file.name.endsWith('.gif')) fileType = 'image/gif';
+          else if (file.name.endsWith('.svg')) fileType = 'image/svg+xml';
+          else fileType = 'application/octet-stream';
+        }
+
         const fileData = {
           name: file.name,
-          type: file.type,
+          type: fileType,
           size: file.size,
           content: e.target.result,
           roomId,
@@ -202,12 +218,12 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
     })
   }
 
-  const handleDeleteFile = async (fileName, fileId) => {
+  const handleDeleteFile = async (file) => {
     const token = localStorage.getItem('livedesk-token');
-    if (token && fileId) {
+    if (token && file._id) {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
-        await fetch(`${apiUrl}/api/files/${fileId}`, {
+        await fetch(`${apiUrl}/api/files/${file._id}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -216,7 +232,65 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
       }
     }
 
-    const updatedFiles = uploadedFiles.filter(f => (f.name !== fileName || f.roomId !== roomId) && f._id !== fileId)
+    const updatedFiles = uploadedFiles.filter(f => f._id !== file._id && f.name !== file.name)
+    setUploadedFiles(updatedFiles)
+    localStorage.setItem(`livedesk-files-${roomId}`, JSON.stringify(updatedFiles))
+    window.dispatchEvent(new CustomEvent('livedesk-files-updated'));
+  }
+
+  const handleDeleteAllFiles = async () => {
+    if (!confirm('Delete ALL files for this room?')) return;
+
+    const token = localStorage.getItem('livedesk-token');
+    const roomFiles = uploadedFiles.filter(f => f.roomId === roomId);
+
+    // Delete from backend
+    if (token) {
+      for (const file of roomFiles) {
+        if (file._id) {
+          try {
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+            await fetch(`${apiUrl}/api/files/${file._id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+          } catch (err) {
+            console.error('Error deleting file from backend:', err);
+          }
+        }
+      }
+    }
+
+    const updatedFiles = uploadedFiles.filter(f => f.roomId !== roomId)
+    setUploadedFiles(updatedFiles)
+    localStorage.setItem(`livedesk-files-${roomId}`, JSON.stringify(updatedFiles))
+    window.dispatchEvent(new CustomEvent('livedesk-files-updated'));
+  }
+
+  const handleDeleteAllSnippets = async () => {
+    if (!confirm('Delete ALL snapshots from this room?')) return;
+
+    const token = localStorage.getItem('livedesk-token');
+    const snapshotFiles = uploadedFiles.filter(f => f.roomId === roomId && (f.isSnapshot || f.isBoardSnapshot || f.isFullSnapshot));
+
+    // Delete from backend
+    if (token) {
+      for (const file of snapshotFiles) {
+        if (file._id) {
+          try {
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+            await fetch(`${apiUrl}/api/files/${file._id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+          } catch (err) {
+            console.error('Error deleting snippet from backend:', err);
+          }
+        }
+      }
+    }
+
+    const updatedFiles = uploadedFiles.filter(f => !(f.roomId === roomId && (f.isSnapshot || f.isBoardSnapshot || f.isFullSnapshot)))
     setUploadedFiles(updatedFiles)
     localStorage.setItem(`livedesk-files-${roomId}`, JSON.stringify(updatedFiles))
     window.dispatchEvent(new CustomEvent('livedesk-files-updated'));
@@ -340,13 +414,24 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
                   <div className="w-1.5 h-1.5 bg-blue-500" />
                   <h3 className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Data Repository</h3>
                 </div>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-blue-500 transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)]"
-                >
-                  <FileUp className="w-3.5 h-3.5" />
-                  Upload Data
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-blue-500 transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)]"
+                  >
+                    <FileUp className="w-3.5 h-3.5" />
+                    Upload Data
+                  </button>
+                  {uploadedFiles.filter(f => f.roomId === roomId).length > 0 && (
+                    <button
+                      onClick={handleDeleteAllFiles}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600/20 text-red-400 border border-red-600/30 text-[10px] font-black uppercase tracking-widest hover:bg-red-600/30 transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete All
+                    </button>
+                  )}
+                </div>
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden" />
               </div>
 
@@ -375,7 +460,7 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
                             <button onClick={() => handleViewSnapshot(file)} className="p-2 hover:bg-white/5 text-blue-400 transition-all" title="Quick View"><Eye className="w-4 h-4" /></button>
                             <button onClick={() => handleLoadSnippet({ code: file.content, language: file.name.split('.').pop() === 'js' ? 'javascript' : 'python', name: file.name, whiteboardData: file.isBoardSnapshot ? JSON.parse(file.content) : null, isBoardSnapshot: file.isBoardSnapshot, isFullSnapshot: file.isFullSnapshot })} className="p-2 hover:bg-white/5 text-emerald-400 transition-all" title="Open in Workspace"><Play className="w-4 h-4" /></button>
                             <button onClick={() => handleDownloadFile(file)} className="p-2 hover:bg-white/5 text-slate-500 hover:text-white transition-all"><Download className="w-4 h-4" /></button>
-                            <button onClick={() => handleDeleteFile(file.name)} className="p-2 hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-all"><Trash2 className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteFile(file)} className="p-2 hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-all"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         </div>
                         
@@ -416,6 +501,15 @@ function MenuDrawer({ isOpen, onClose, roomId, code, whiteboardData, language, i
                   <div className="w-1.5 h-1.5 bg-blue-500" />
                   <h3 className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Session Library</h3>
                 </div>
+                {uploadedFiles.filter(f => (f.isSnapshot || f.isBoardSnapshot || f.isFullSnapshot) && f.roomId === roomId).length > 0 && (
+                  <button
+                    onClick={handleDeleteAllSnippets}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600/20 text-red-400 border border-red-600/30 text-[10px] font-black uppercase tracking-widest hover:bg-red-600/30 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete All
+                  </button>
+                )}
               </div>
 
               {uploadedFiles.filter(f => f.isSnapshot || f.isBoardSnapshot || f.isFullSnapshot).length === 0 ? (

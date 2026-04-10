@@ -1,14 +1,36 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Mail, Lock, ArrowRight, Github, Chrome, ShieldCheck } from 'lucide-react';
 import Logo from '../components/Logo';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function Login() {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sessionExpired = searchParams.get('reason') === 'session_expired';
+  const oauthError = searchParams.get('error');
+
+  useEffect(() => {
+    if (sessionExpired) {
+      setError('Your session has expired. Please login again.');
+      return;
+    }
+    if (oauthError) {
+      const errorMap = {
+        google_auth_failed: 'Google sign in failed. Please try again.',
+        github_auth_failed: 'GitHub sign in failed. Please try again.',
+        oauth_profile_failed: 'Social login succeeded, but profile sync failed. Please try again.',
+        google_email_required: 'Google account email is required.',
+        github_email_required: 'GitHub primary email is required.'
+      };
+      setError(errorMap[oauthError] || 'Social authentication failed.');
+    }
+  }, [sessionExpired, oauthError]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -150,11 +172,19 @@ function Login() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 mt-8">
-                <button className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <button
+                  type="button"
+                  onClick={() => window.location.href = `${API_URL}/api/auth/github`}
+                  className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest"
+                >
                   <Github className="w-4 h-4" />
                   GITHUB
                 </button>
-                <button className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <button
+                  type="button"
+                  onClick={() => window.location.href = `${API_URL}/api/auth/google`}
+                  className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest"
+                >
                   <Chrome className="w-4 h-4" />
                   GOOGLE
                 </button>

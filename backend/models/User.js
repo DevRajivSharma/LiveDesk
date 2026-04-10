@@ -58,7 +58,28 @@ const userSchema = new mongoose.Schema({
     default: []
   },
   resetPasswordToken: String,
-  resetPasswordExpires: Date
+  resetPasswordExpires: Date,
+  // OAuth providers
+  githubId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  authProvider: {
+    type: String,
+    enum: ['local', 'github', 'google'],
+    default: 'local'
+  },
+  authProviders: {
+    type: [String],
+    enum: ['local', 'github', 'google'],
+    default: ['local']
+  }
 }, {
   timestamps: true
 });

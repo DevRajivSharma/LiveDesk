@@ -4,6 +4,8 @@ import axios from 'axios';
 import { User, Mail, Lock, ArrowRight, ShieldCheck, Github, Chrome, KeyRound } from 'lucide-react';
 import Logo from '../components/Logo';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 function Register() {
   const [formData, setFormData] = useState({ username: '', email: '', password: '' });
   const [error, setError] = useState('');
@@ -22,8 +24,7 @@ function Register() {
     setLoading(true);
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      await axios.post(`${apiUrl}/api/auth/register`, formData);
+      await axios.post(`${API_URL}/api/auth/register`, formData);
       setOtpSent(true);
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed. Please check your data.');
@@ -38,8 +39,7 @@ function Register() {
     setLoading(true);
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const res = await axios.post(`${apiUrl}/api/auth/verify-otp`, {
+      const res = await axios.post(`${API_URL}/api/auth/verify-otp`, {
         email: formData.email,
         otp
       });
@@ -224,10 +224,18 @@ function Register() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <button className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <button
+                      type="button"
+                      onClick={() => window.location.href = `${API_URL}/api/auth/github`}
+                      className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest"
+                    >
                       <Github className="w-4 h-4" /> GITHUB
                     </button>
-                    <button className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <button
+                      type="button"
+                      onClick={() => window.location.href = `${API_URL}/api/auth/google`}
+                      className="flex items-center justify-center gap-3 py-3 bg-[#0a0a0a] hover:bg-white/5 border border-white/5 rounded-none transition-all text-[10px] font-black text-slate-400 uppercase tracking-widest"
+                    >
                       <Chrome className="w-4 h-4" /> GOOGLE
                     </button>
                   </div>
