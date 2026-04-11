@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.js';
+import File from '../models/File.js';
 import { client as redis } from '../config/redis.js';
 import { sendOTP, sendResetLink } from '../utils/mailer.js';
 import crypto from 'crypto';
@@ -536,6 +537,65 @@ router.put('/profile', verifyToken, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error updating profile' });
+  }
+});
+
+// Update profile avatar
+router.put('/profile/avatar', verifyToken, async (req, res) => {
+  try {
+    const { avatar } = req.body;
+    if (!avatar) return res.status(400).json({ message: 'Avatar data is required' });
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.avatar = avatar;
+    await user.save();
+
+    res.json({ message: 'Avatar updated successfully', avatar: user.avatar });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error updating avatar' });
+  }
+});
+
+// Fetch user files
+router.get('/profile/files', verifyToken, async (req, res) => {
+  try {
+    const files = await File.find({ userId: req.userId }).sort({ createdAt: -1 });
+    res.json(files);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error fetching files' });
+  }
+});
+
+// Delete user account
+router.delete('/profile', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Delete user's files
+    await File.deleteMany({ userId: req.userId });
+
+    // Delete the user
+    await User.findByIdAndDelete(req.userId);
+
+    // Invalidate all user sessions in Redis
+    const sessionsStr = await redis.get(`user_sessions_${req.userId}`);
+    if (sessionsStr) {
+      const sessions = JSON.parse(sessionsStr);
+      for (const sessionId of sessions) {
+        await redis.del(`session_${sessionId}`);
+      }
+      await redis.del(`user_sessions_${req.userId}`);
+    }
+
+    res.json({ message: 'Account deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error deleting account' });
   }
 });
 

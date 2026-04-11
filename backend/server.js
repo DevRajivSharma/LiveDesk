@@ -201,7 +201,7 @@ const getRandomColor = () => {
   return colors[Math.floor(Math.random() * colors.length)];
 };
 
-app.get('/api/room/:roomId', async (req, res) => {
+app.get('/api/room/:roomId', verifyToken, async (req, res) => {
   try {
     const { roomId } = req.params;
     const room = await Room.findOne({ roomId });
@@ -217,7 +217,7 @@ app.get('/api/room/:roomId', async (req, res) => {
   }
 });
 
-app.post('/api/room', async (req, res) => {
+app.post('/api/room', verifyToken, async (req, res) => {
   try {
     const roomId = generateRoomId();
     const room = await Room.create({ roomId });
@@ -228,7 +228,7 @@ app.post('/api/room', async (req, res) => {
   }
 });
 
-app.delete('/api/room/:roomId', async (req, res) => {
+app.delete('/api/room/:roomId', verifyToken, async (req, res) => {
   try {
     const { roomId } = req.params;
     await Room.findOneAndDelete({ roomId });
@@ -239,7 +239,7 @@ app.delete('/api/room/:roomId', async (req, res) => {
   }
 });
 
-app.post('/api/execute', async (req, res) => {
+app.post('/api/execute', verifyToken, async (req, res) => {
   try {
     const { code, language, roomId } = req.body;
     console.log(`[Code Execution] Room: ${roomId}, Language: ${language}`);

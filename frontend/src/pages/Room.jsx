@@ -264,10 +264,14 @@ function Room() {
     setTerminalOutput(prev => [...prev, { type: 'command', text: `$ run ${language} script`, time: timestamp }])
 
     try {
+      const token = localStorage.getItem('livedesk-token');
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
       const response = await fetch(`${apiUrl}/api/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ code: currentCode, language, roomId })
       })
       const result = await response.json()

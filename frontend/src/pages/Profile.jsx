@@ -1,16 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
-import { User, Mail, Github, Twitter, Globe, MapPin, Briefcase, Code, Save, ChevronLeft, LogOut, ShieldCheck, Camera, Activity } from 'lucide-react';
+import { User, Mail, Github, Twitter, Globe, MapPin, Briefcase, Code, Save, ChevronLeft, LogOut, ShieldCheck, Camera, Activity, Trash2, FileText, Download, Calendar } from 'lucide-react';
 import Logo from '../components/Logo';
 
 function Profile() {
   const [user, setUser] = useState(null);
+  const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [editMode, setEditMode] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const fileInputRef = useRef(null);
+
   const [formData, setFormData] = useState({
     username: '',
     bio: '',
@@ -25,7 +29,7 @@ function Profile() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchData = async () => {
       try {
         const token = localStorage.getItem('livedesk-token');
         if (!token) {
@@ -34,32 +38,92 @@ function Profile() {
         }
 
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-        const res = await axios.get(`${apiUrl}/api/auth/profile`, {
+        
+        // Fetch profile
+        const profileRes = await axios.get(`${apiUrl}/api/auth/profile`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setUser(res.data);
+        setUser(profileRes.data);
         setFormData({
-          username: res.data.username || '',
-          bio: res.data.bio || '',
-          github: res.data.github || '',
-          twitter: res.data.twitter || '',
-          website: res.data.website || '',
-          location: res.data.location || '',
-          occupation: res.data.occupation || '',
-          skills: (res.data.skills || []).join(', ')
+          username: profileRes.data.username || '',
+          bio: profileRes.data.bio || '',
+          github: profileRes.data.github || '',
+          twitter: profileRes.data.twitter || '',
+          website: profileRes.data.website || '',
+          location: profileRes.data.location || '',
+          occupation: profileRes.data.occupation || '',
+          skills: (profileRes.data.skills || []).join(', ')
         });
+
+        // Fetch user files
+        const filesRes = await axios.get(`${apiUrl}/api/auth/profile/files`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setFiles(filesRes.data);
+
         setLoading(false);
       } catch (err) {
-        setError('Failed to load profile');
+        setError('Failed to load profile data');
         setLoading(false);
       }
     };
 
-    fetchProfile();
+    fetchData();
   }, [navigate]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Check file size (max 1MB)
+    if (file.size > 1024 * 1024) {
+      setError('Avatar image must be less than 1MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result;
+      try {
+        setSaving(true);
+        const token = localStorage.getItem('livedesk-token');
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        
+        const res = await axios.put(`${apiUrl}/api/auth/profile/avatar`, 
+          { avatar: base64String },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        setUser({ ...user, avatar: res.data.avatar });
+        setMessage('Avatar updated successfully');
+      } catch (err) {
+        setError(err.response?.data?.message || 'Failed to update avatar');
+      } finally {
+        setSaving(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeleteAccount = async () => {
+    try {
+      setSaving(true);
+      const token = localStorage.getItem('livedesk-token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      
+      await axios.delete(`${apiUrl}/api/auth/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      handleLogout();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete account');
+      setSaving(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -135,6 +199,18 @@ function Profile() {
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 mt-12">
+        {error && (
+          <div className="mb-8 p-4 bg-red-600/10 border border-red-600/20 text-red-500 text-[10px] font-black uppercase tracking-widest flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError('')}>×</button>
+          </div>
+        )}
+        {message && (
+          <div className="mb-8 p-4 bg-emerald-600/10 border border-emerald-600/20 text-emerald-500 text-[10px] font-black uppercase tracking-widest flex items-center justify-between">
+            <span>{message}</span>
+            <button onClick={() => setMessage('')}>×</button>
+          </div>
+        )}
         
         <div className="space-y-12">
           
@@ -142,14 +218,29 @@ function Profile() {
             <div className="absolute top-0 left-0 w-full h-1 bg-blue-600" />
             <div className="flex flex-col md:flex-row items-center gap-12 relative z-10">
               <div className="relative">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleAvatarChange}
+                  accept="image/*"
+                  className="hidden"
+                />
                 <div 
-                  className="w-40 h-40 flex items-center justify-center text-5xl font-black shadow-2xl border border-white/10 transition-transform group-hover:scale-105 duration-500"
-                  style={{ backgroundColor: user?.avatarColor || '#2563eb' }}
+                  className="w-40 h-40 flex items-center justify-center text-5xl font-black shadow-2xl border border-white/10 transition-transform group-hover:scale-105 duration-500 overflow-hidden"
+                  style={{ backgroundColor: !user?.avatar ? (user?.avatarColor || '#2563eb') : 'transparent' }}
                 >
-                  {user?.username?.charAt(0).toUpperCase()}
+                  {user?.avatar ? (
+                    <img src={user.avatar} alt={user.username} className="w-full h-full object-cover" />
+                  ) : (
+                    user?.username?.charAt(0).toUpperCase()
+                  )}
                 </div>
                 {editMode && (
-                  <button className="absolute -bottom-2 -right-2 p-3 bg-blue-600 text-white shadow-xl hover:scale-110 transition-transform">
+                  <button 
+                    onClick={() => fileInputRef.current.click()}
+                    disabled={saving}
+                    className="absolute -bottom-2 -right-2 p-3 bg-blue-600 text-white shadow-xl hover:scale-110 transition-transform disabled:opacity-50"
+                  >
                     <Camera className="w-5 h-5" />
                   </button>
                 )}
@@ -342,6 +433,99 @@ function Profile() {
                       Abort
                     </button>
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          
+          <div className="bg-black/40 border border-white/10 p-10 shadow-2xl space-y-10">
+            <div className="flex items-center justify-between border-b border-white/5 pb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-2 h-2 bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.5)]" />
+                <h3 className="text-[11px] font-black text-white uppercase tracking-[0.4em]">Data Repository</h3>
+              </div>
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{files.length} System Objects Found</span>
+            </div>
+
+            {files.length > 0 ? (
+              <div className="grid md:grid-cols-2 gap-6">
+                {files.map((file) => (
+                  <div key={file._id} className="p-6 bg-white/[0.02] border border-white/5 group hover:border-blue-600/30 transition-all duration-300">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 bg-blue-600/10 text-blue-400">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider truncate max-w-[150px]">{file.name}</h4>
+                          <div className="flex items-center gap-3 text-[8px] font-black text-slate-500 uppercase tracking-widest">
+                            <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(file.createdAt).toLocaleDateString()}</span>
+                            <span className="px-2 py-0.5 bg-white/5 border border-white/10 text-slate-400">{file.type}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          const blob = new Blob([file.content], { type: 'text/plain' });
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = file.name;
+                          a.click();
+                        }}
+                        className="p-2 text-slate-500 hover:text-white transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-20 text-center border border-dashed border-white/10 bg-white/[0.01]">
+                <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">No data records located in this sector</p>
+              </div>
+            )}
+          </div>
+
+          
+          <div className="bg-red-600/5 border border-red-600/20 p-10 shadow-2xl space-y-8">
+            <div className="flex items-center gap-4 border-b border-red-600/10 pb-6">
+              <div className="w-2 h-2 bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
+              <h3 className="text-[11px] font-black text-white uppercase tracking-[0.4em]">Destructive Operations</h3>
+            </div>
+            
+            <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Terminate Digital Identity</p>
+                <p className="text-slate-500 text-[10px] max-w-md uppercase leading-relaxed font-black tracking-widest opacity-60">
+                  Permanently erase all system data, files, and credentials. This action is irreversible and will result in total data loss.
+                </p>
+              </div>
+              
+              {!showDeleteConfirm ? (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-10 py-5 bg-red-600/10 border border-red-600/20 text-red-500 font-black hover:bg-red-600 hover:text-white transition-all duration-300 uppercase tracking-widest text-[10px]"
+                >
+                  Initiate Termination
+                </button>
+              ) : (
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={saving}
+                    className="px-8 py-5 bg-red-600 text-white font-black hover:bg-red-700 transition-all uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(220,38,38,0.4)]"
+                  >
+                    {saving ? 'Terminating...' : 'Confirm Destruction'}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-8 py-5 bg-white/5 border border-white/10 text-slate-500 font-black uppercase tracking-widest text-[10px]"
+                  >
+                    Abort
+                  </button>
                 </div>
               )}
             </div>

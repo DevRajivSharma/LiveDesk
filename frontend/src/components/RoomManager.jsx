@@ -15,9 +15,13 @@ function RoomManager() {
 
   const handleCreateRoom = async () => {
     try {
+      const token = localStorage.getItem('livedesk-token');
       const response = await fetch(`${API_URL}/api/room`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ name: roomName.trim() || 'Unnamed Session' })
       })
       const data = await response.json()
@@ -36,7 +40,12 @@ function RoomManager() {
     setIsJoining(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/room/${roomId.trim()}`)
+      const token = localStorage.getItem('livedesk-token');
+      const response = await fetch(`${API_URL}/api/room/${roomId.trim()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
       if (!response.ok) {
         toast.error('CRITICAL_ERROR: Session not found in database.')
         setIsJoining(false)
