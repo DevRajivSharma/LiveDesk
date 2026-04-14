@@ -2,7 +2,7 @@
 
 LiveDesk is a real-time collaboration workspace with a shared code editor, whiteboard, room-based sessions, file snapshots, authentication, and live presence via Socket.IO.
 
-The production frontend is hosted at [livedesk-live.vercel.app](https://livedesk-live.vercel.app).
+The production frontend is hosted at [livedesk.rajivsharma.online](https://livedesk.rajivsharma.online).
 
 ## What Is In This Repo
 
