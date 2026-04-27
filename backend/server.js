@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { LimitYourAPIClient } from 'limityourapi';
 dotenv.config();
 console.log('EMAIL_API_URL URL:',process.env.EMAIL_API_URL)
 import express from 'express';
@@ -95,10 +96,17 @@ setInterval(async () => {
   }
 }, 60 * 60 * 1000); // Every hour
 
+// LimitYourApi
+const limiter = new LimitYourAPIClient({
+  baseUrl: 'https://livedesk-api.rajivsharma.online', // your service URL
+  apiKey: 'rl_b71bf85bed01029c464e69cf2ae4671ab38bea3217cb61d8'
+});
+
 // Initial cleanup on server start
 Room.cleanupExpiredRooms().catch(err => console.error('[Room Cleanup] Initial cleanup failed:', err));
 
 const app = express();
+app.use(limiter.middleware());
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
