@@ -99,7 +99,7 @@ setInterval(async () => {
 // LimitYourApi
 const limiter = new LimitYourAPIClient({
   baseUrl: 'https://livedesk-api.rajivsharma.online', // your service URL
-  apiKey: 'rl_b71bf85bed01029c464e69cf2ae4671ab38bea3217cb61d8'
+  apiKey: process.env.LimitYourAPI
 });
 
 // Initial cleanup on server start
