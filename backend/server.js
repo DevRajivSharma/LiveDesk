@@ -106,7 +106,7 @@ const limiter = new LimitYourAPIClient({
 Room.cleanupExpiredRooms().catch(err => console.error('[Room Cleanup] Initial cleanup failed:', err));
 
 const app = express();
-app.use(limiter.middleware());
+// app.use(limiter.middleware());
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
